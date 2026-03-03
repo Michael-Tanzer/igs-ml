@@ -1,0 +1,21 @@
+# Example model config demonstrating BaseLitModule usage
+_target_: src.models.modules.example_module.ExampleModule
+
+net:
+  _target_: src.models.components.model_wrapper.DataObjectModelWrapper
+  model:
+    _target_: src.models.modules.example_module.SimpleDenoisingNet
+    in_channels: 3
+    out_channels: 3
+  dataobject_input_args:
+    - data
+
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.001
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max: 100
+
+lr: 0.001

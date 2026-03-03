@@ -1,0 +1,31 @@
+# @package _global_
+
+# Example experiment config demonstrating comprehensive usage
+# This shows how to use DataObject, BaseLitModule, config resolvers, and callbacks
+
+defaults:
+  - override /data: example
+  - override /model: example_module
+  - override /trainer: gpu
+  - override /callbacks: default
+  - override /logger: wandb
+
+# You can use config resolvers here
+# model:
+#   net:
+#     model:
+#       in_channels: ${fill:data.batch_size}  # Example of using fill resolver
+
+# Example of using math_eval resolver
+# some_value: ${math_eval:2 * 3 + 4}
+
+# Example of using machine_name resolver  
+# data_dir: /data/${machine_name}/datasets
+
+# Tags for experiment tracking
+tags: ["example", "denoising", "dataobject"]
+
+# Training settings
+seed: 42
+train: true
+test: true

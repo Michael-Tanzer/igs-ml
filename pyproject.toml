@@ -1,0 +1,83 @@
+[project]
+name = "lightning-hydra-template"
+version = "0.1.0"
+description = "PyTorch Lightning + Hydra template with reusable components"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # --------- pytorch --------- #
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "lightning>=2.0.0",
+    "torchmetrics>=0.11.4",
+    # --------- hydra --------- #
+    "hydra-core==1.3.2",
+    "hydra-colorlog==1.2.0",
+    "hydra-optuna-sweeper==1.2.0",
+    # --------- loggers --------- #
+    # "wandb",
+    # "neptune-client",
+    # "mlflow",
+    # "comet-ml",
+    # "aim>=3.16.2",  # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
+    # --------- others --------- #
+    "rootutils",  # standardizing the project root setup
+    "rich",  # beautiful text formatting in terminal
+    "regex",  # for config resolvers
+    "opencv-python",  # for image utilities
+    "scikit-image",  # for image utilities
+    "matplotlib",  # for image visualization
+    # "sh",  # for running bash commands in some tests (linux/macos only)
+    # "colorcet",  # optional: better colormaps for visualization
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=3.0.0",
+    "pytest>=7.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# For template projects with src layout
+# This allows editable installs: uv pip install -e .
+# Note: Since this is a template, you may want to use --no-install-project with uv sync
+# or configure this based on your actual package structure
+packages = ["src"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--color=yes",
+    "--durations=0",
+    "--strict-markers",
+    "--doctest-modules",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+log_cli = "True"
+markers = [
+    "slow: slow tests",
+]
+minversion = "6.0"
+testpaths = "tests/"
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: nocover",
+    "raise NotImplementedError",
+    "raise NotImplementedError()",
+    "if __name__ == .__main__.:",
+]
+
+# UV-specific configuration
+# Note: UV uses [project] and [project.optional-dependencies] for dependencies
+# [tool.uv.sources] is used for git dependencies or alternative sources
+# Example:
+# [tool.uv.sources]
+# package-name = { git = "https://github.com/user/repo", rev = "branch" }
+# package-name = { path = "../local-package" }
