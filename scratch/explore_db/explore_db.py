@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from src.data.components.db_client import (
+from src.data.utils.db_client import (
     get_connection,
     run_query_from_file,
 )

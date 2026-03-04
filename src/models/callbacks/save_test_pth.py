@@ -7,7 +7,7 @@ import torch
 from hydra.utils import instantiate
 from lightning import Callback
 
-from src.data.components.invertible_transforms import CustomCompose, InvertibleTransform
+from src.data.utils.invertible_transforms import CustomCompose, InvertibleTransform
 from src.utils.data_objects import DataObject
 
 PTH_FILENAME = "test_output.pth"

@@ -1,0 +1,31 @@
+_target_: src.data.malaria_patch_datamodule.MalariaPatchDataModule
+
+db: ${db}
+query_path: src/queries/malaria/binary_classification.sql
+image_root: /data/mtanzer/autoscope_images
+patch_size: 100
+label_column: y_binary_strict    # or y_binary_inclusive
+z_mode: all                      # "all" (3N ch) or "best" (3 ch, Brenner)
+max_z: 11                        # fixed z-slice count for z_mode=all (pads/truncates)
+
+train_val_test_split: [0.7, 0.15, 0.15]
+split_seed: 42
+
+batch_size: 32
+num_workers: 4
+prefetch_factor: 2
+persistent_workers: true
+pin_memory: true
+
+cache_dir: ${paths.data_dir}/malaria_cache
+
+# Transforms -- Hydra-instantiable lists, composed at runtime.
+# transforms_train = transforms_base + transforms_augment  (training)
+# transforms_eval  = transforms_base                       (val / test)
+transforms_base:
+  - _target_: torchvision.transforms.ToTensor
+transforms_augment:
+  - _target_: torchvision.transforms.RandomHorizontalFlip
+    p: 0.3
+  - _target_: torchvision.transforms.RandomVerticalFlip
+    p: 0.3

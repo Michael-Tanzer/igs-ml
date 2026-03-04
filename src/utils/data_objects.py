@@ -42,6 +42,31 @@ class SMSProperties:
         return self
 
 
+@dataclass
+class MalariaProperties:
+    """Malaria-specific metadata for patch samples.
+
+    Carries per-sample DB metadata through the pipeline so that downstream
+    code (logging, analysis, stratified metrics) can inspect it without a
+    second DB round-trip.
+    """
+    object_ids: list
+    z_stack_filename: str
+    z_indices_used: list
+    id_image_set: int
+    PID: str
+    species: str
+    stage: str
+    smear_type: str
+    parasitemia: str
+    z_stack_height: int
+    pixels_per_micron: float
+
+    def to(self, device):
+        """No-op -- all fields are plain Python objects."""
+        return self
+
+
 def get_repr(dict_obj, name="DataObject"):
     """Helper function to generate string representation."""
     s = f"{name}("
@@ -105,8 +130,7 @@ class DataObject:
     
     # Task-specific properties (optional sub-objects)
     sms: Optional[SMSProperties] = None
-    # Note: Additional sub-objects can be added dynamically via __setattr__
-    # Example: denoising: Optional[DenoisingProperties] = None
+    malaria: Optional[MalariaProperties] = None
 
     def __post_init__(self):
         """Normalize filepath fields to consistent format."""

@@ -1,0 +1,31 @@
+# @package _global_
+
+defaults:
+  - override /data: malaria_patch
+  - override /model: malaria_patch
+  - override /trainer: gpu
+  - override /callbacks: default
+  - override /logger: aim
+  - override /paths: igs
+
+tags: ["malaria", "binary-classification", "efficientnet", "baseline"]
+seed: 42
+train: true
+test: true
+
+logger:
+  aim:
+    repo: "aim://0.0.0.0:53800"
+    experiment: malaria_patch_baseline
+
+callbacks:
+  model_checkpoint:
+    monitor: "val/loss"
+    mode: "min"
+  early_stopping:
+    monitor: "val/loss"
+    mode: "min"
+    patience: 15
+
+trainer:
+  max_epochs: 50

@@ -1,5 +1,10 @@
 from src.utils.config_manipulation import fill, machine_name, math_eval
-from src.utils.data_objects import DataObject, SMSProperties, custom_object_collate_fn
+from src.utils.data_objects import (
+    DataObject,
+    MalariaProperties,
+    SMSProperties,
+    custom_object_collate_fn,
+)
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.logging_utils import log_hyperparameters
 from src.utils.pylogger import RankedLogger
@@ -22,6 +27,7 @@ __all__ = [
     "machine_name",
     "render_sql",
     "DataObject",
+    "MalariaProperties",
     "SMSProperties",
     "custom_object_collate_fn",
 ]

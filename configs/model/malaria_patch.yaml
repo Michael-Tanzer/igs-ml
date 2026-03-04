@@ -1,0 +1,36 @@
+_target_: src.models.modules.base.BaseLitModule
+
+net:
+  _target_: src.models.components.model_wrapper.DataObjectModelWrapper
+  model:
+    _target_: src.models.components.timm_classifier.TimmClassifier
+    model_name: efficientnet_b0
+    in_chans: 33               # 3 * max_z (11)
+    num_classes: 1
+    pretrained: false
+    drop_rate: 0.2
+  dataobject_input_args:
+    - data
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.1
+  patience: 10
+
+criteria:
+  - _target_: src.models.losses.simple_losses.DataObjectLoss
+    loss_fn:
+      _target_: torch.nn.BCEWithLogitsLoss
+    name: bce
+
+metrics:
+  - _target_: src.models.metrics.simple_metrics.BinaryAccuracyMetric
+    threshold: 0.0              # model outputs logits, so decision boundary is 0
+  - _target_: src.models.metrics.simple_metrics.BinaryAUROCMetric
