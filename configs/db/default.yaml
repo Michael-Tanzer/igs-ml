@@ -1,0 +1,8 @@
+# Database connection config.
+# Set DB_USER and DB_PASSWORD in .env (see .env.example).
+
+host: "127.0.0.1"
+port: 3306
+database: "autoscope"
+user: ${oc.env:DB_USER}
+password: ${oc.env:DB_PASSWORD}

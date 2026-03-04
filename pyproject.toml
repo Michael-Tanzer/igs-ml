@@ -19,7 +19,7 @@ dependencies = [
     # "neptune-client",
     # "mlflow",
     # "comet-ml",
-    # "aim>=3.16.2",  # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
+    "aim>=3.16.2",  # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
     # --------- others --------- #
     "rootutils",  # standardizing the project root setup
     "rich",  # beautiful text formatting in terminal
@@ -27,8 +27,19 @@ dependencies = [
     "opencv-python",  # for image utilities
     "scikit-image",  # for image utilities
     "matplotlib",  # for image visualization
-    # "sh",  # for running bash commands in some tests (linux/macos only)
-    # "colorcet",  # optional: better colormaps for visualization
+    "sh",  # for running bash commands in some tests (linux/macos only)
+    "colorcet",  # optional: better colormaps for visualization
+    "pandas",
+    "numpy",
+    "scipy",
+    "pillow",
+    "tqdm",
+    "seaborn",
+    "plotly",
+    "plotly-express",
+    "pymysql",
+    "click",
+    "ipykernel>=7.2.0",
 ]
 
 [project.optional-dependencies]
@@ -59,12 +70,12 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",
 ]
-log_cli = "True"
+log_cli = true
 markers = [
     "slow: slow tests",
 ]
 minversion = "6.0"
-testpaths = "tests/"
+testpaths = ["tests/"]
 
 [tool.coverage.report]
 exclude_lines = [
