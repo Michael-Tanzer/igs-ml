@@ -6,6 +6,7 @@ import rootutils
 import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
+from lightning.pytorch.profilers import Profiler
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -49,6 +50,9 @@ OmegaConf.register_new_resolver("math_eval", math_eval)
 OmegaConf.register_new_resolver("machine_name", machine_name)
 
 
+torch.set_float32_matmul_precision('medium')  # 'medium' or 'high'
+
+
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
@@ -76,8 +80,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
+    log.info("Instantiating profiler...")
+    profiler: Profiler = hydra.utils.instantiate(cfg.get("profiler"))
+
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger, profiler=profiler)
 
     object_dict = {
         "cfg": cfg,

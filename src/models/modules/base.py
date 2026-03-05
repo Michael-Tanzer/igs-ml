@@ -2,16 +2,8 @@ from typing import Any, Callable, List, Optional
 
 import numpy as np
 import torch
-import wandb
 from lightning import LightningModule
-from lightning.pytorch.loggers import (
-    CometLogger,
-    CSVLogger,
-    MLFlowLogger,
-    NeptuneLogger,
-    TensorBoardLogger,
-    WandbLogger,
-)
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.utilities.types import _METRIC as METRIC_PL
 from lightning_utilities.core.rank_zero import rank_zero_warn
 from torchmetrics import Metric
@@ -22,13 +14,40 @@ from src.utils.data_objects import DataObject
 from src.utils.enums import TRAINING_STAGE, TrainingStage
 from src.utils.utils import remove_best_from_string, warn_once
 
-# Try to import AimLogger if available
+# Optional logger backends -- only needed when the corresponding logger is active
+try:
+    import wandb
+    from lightning.pytorch.loggers import WandbLogger
+except ImportError:
+    wandb = None
+    WandbLogger = None
+
+try:
+    from lightning.pytorch.loggers import TensorBoardLogger
+except ImportError:
+    TensorBoardLogger = None
+
+try:
+    from lightning.pytorch.loggers import MLFlowLogger
+except ImportError:
+    MLFlowLogger = None
+
+try:
+    from lightning.pytorch.loggers import NeptuneLogger
+except ImportError:
+    NeptuneLogger = None
+
+try:
+    from lightning.pytorch.loggers import CometLogger
+except ImportError:
+    CometLogger = None
+
 try:
     import aim
     from aim.pytorch_lightning import AimLogger
-    AIM_AVAILABLE = True
 except ImportError:
-    AIM_AVAILABLE = False
+    aim = None
+    AimLogger = None
 
 
 class BaseLitModule(LightningModule):
@@ -50,9 +69,10 @@ class BaseLitModule(LightningModule):
         criteria: List[Metric] = None,
         metrics: List[WrappedMetric] = None,
         name: str = "Base",
+        log_metrics_every_n_steps: int = 1,
     ):
         """Initialize base module.
-        
+
         Args:
             net: Model wrapped in DataObjectModelWrapper
             optimizer: Optimizer class (will be instantiated with model parameters)
@@ -60,6 +80,7 @@ class BaseLitModule(LightningModule):
             criteria: List of loss/metric criteria
             metrics: List of wrapped metrics
             name: Module name
+            log_metrics_every_n_steps: Log and update metrics every N steps (1 = every step).
         """
         super().__init__()
 
@@ -113,7 +134,7 @@ class BaseLitModule(LightningModule):
     def training_step(self, batch: DataObject, batch_idx: int):
         """Training step."""
         computed_batch = self.model_step(batch)
-        self.on_step_log(computed_batch, stage=TrainingStage.TRAIN)
+        self.on_step_log(computed_batch, stage=TrainingStage.TRAIN, batch_idx=batch_idx)
 
         # Return dict with loss information
         return_batch = {
@@ -133,7 +154,7 @@ class BaseLitModule(LightningModule):
     def validation_step(self, batch: DataObject, batch_idx: int):
         """Validation step."""
         computed_batch = self.model_step(batch)
-        self.on_step_log(computed_batch, stage=TrainingStage.VAL)
+        self.on_step_log(computed_batch, stage=TrainingStage.VAL, batch_idx=batch_idx)
         return computed_batch.to_dict()
 
     def on_validation_epoch_end(self):
@@ -143,21 +164,29 @@ class BaseLitModule(LightningModule):
     def test_step(self, batch: DataObject, batch_idx: int):
         """Test step."""
         computed_batch = self.model_step(batch)
-        self.on_step_log(computed_batch, stage=TrainingStage.TEST)
+        self.on_step_log(computed_batch, stage=TrainingStage.TEST, batch_idx=batch_idx)
         return computed_batch.to_dict()
 
     def on_test_epoch_end(self):
         """Called at end of test epoch."""
         self.on_epoch_end(stage=TrainingStage.TEST)
 
-    def on_step_log(self, computed_batch: DataObject, stage: TRAINING_STAGE):
+    def on_step_log(self, computed_batch: DataObject, stage: TRAINING_STAGE, batch_idx: int = None):
         """Log metrics and losses for a step.
-        
+
+        When log_metrics_every_n_steps > 1, metrics are only updated and logged
+        every N steps (epoch aggregates then use those steps only).
+
         Args:
             computed_batch: DataObject with computed outputs
             stage: Training stage (train/val/test)
+            batch_idx: Current batch index (required when log_metrics_every_n_steps > 1).
         """
         on_step = stage == TrainingStage.TRAIN
+        n = self.hparams.log_metrics_every_n_steps
+        do_metrics_this_step = (
+            batch_idx is None or n <= 1 or (batch_idx % n == 0)
+        )
 
         # Log losses
         for loss in self.criteria:
@@ -180,20 +209,21 @@ class BaseLitModule(LightningModule):
                 batch_size=computed_batch.output.shape[0],
             )
 
-        # Update and log metrics
-        for metric in self.metrics:
-            if "best" in metric.name.lower():
-                continue
+        # Update and log metrics (every step if n==1, else every n-th step)
+        if do_metrics_this_step:
+            for metric in self.metrics:
+                if "best" in metric.name.lower():
+                    continue
 
-            metric.log(computed_batch, stage)
-            self.log(
-                f"{stage}/{metric.name}",
-                metric.get(stage),
-                on_step=on_step,
-                on_epoch=True,
-                prog_bar=True,
-                batch_size=computed_batch.output.shape[0],
-            )
+                metric.log(computed_batch, stage)
+                self.log(
+                    f"{stage}/{metric.name}",
+                    metric.get(stage),
+                    on_step=on_step,
+                    on_epoch=True,
+                    prog_bar=True,
+                    batch_size=computed_batch.output.shape[0],
+                )
 
         # Sum non-None losses
         loss = sum(filter(None, computed_batch.losses.values()))
@@ -312,18 +342,18 @@ class BaseLitModule(LightningModule):
                 return
 
             for logger in self.trainer.loggers:
-                if isinstance(logger, WandbLogger):
+                if WandbLogger is not None and isinstance(logger, WandbLogger):
                     image = wandb.Image(value, caption="Data, output, target")
                     logger.experiment.log({name: image}, commit=True)
-                elif isinstance(logger, TensorBoardLogger):
+                elif TensorBoardLogger is not None and isinstance(logger, TensorBoardLogger):
                     logger.experiment.add_image(name, value, global_step=self.global_step)
-                elif isinstance(logger, MLFlowLogger):
+                elif MLFlowLogger is not None and isinstance(logger, MLFlowLogger):
                     logger.experiment.log_artifact(value, name)
-                elif isinstance(logger, NeptuneLogger):
+                elif NeptuneLogger is not None and isinstance(logger, NeptuneLogger):
                     logger.experiment[name].log(value)
-                elif isinstance(logger, CometLogger):
+                elif CometLogger is not None and isinstance(logger, CometLogger):
                     logger.experiment.log_image(name, value, step=self.global_step)
-                elif AIM_AVAILABLE and isinstance(logger, AimLogger):
+                elif AimLogger is not None and isinstance(logger, AimLogger):
                     if value.ndim == 3 and value.shape[2] > 1:  # color
                         image = aim.Image(
                             (value * 255).astype(np.uint8),

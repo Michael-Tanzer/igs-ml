@@ -7,12 +7,13 @@ defaults:
   - data: mnist
   - model: mnist
   - callbacks: default
-  - logger: null # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: null  # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: default
   - paths: default
   - extras: default
   - hydra: default
   - db: default
+  - profiler: null  # set profiler here or use command line (e.g. `python train.py profiler=simple`)
 
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule

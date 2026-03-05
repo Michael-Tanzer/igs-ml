@@ -16,7 +16,7 @@ from torch.utils.data import Dataset
 from src.utils.data_objects import DataObject, MalariaProperties
 
 
-_MISSING_Z_WARNED = False
+cv2.setLogLevel(2)
 
 
 def brenner_score(patch):
@@ -124,7 +124,6 @@ class MalariaPatchDataset(Dataset):
 
     def __getitem__(self, idx):
         """Load patch images, optionally select best z, return DataObject."""
-        global _MISSING_Z_WARNED
         sample = self.samples[idx]
 
         zstack = sample["z_stack_filename"]
@@ -144,13 +143,6 @@ class MalariaPatchDataset(Dataset):
             full_path = os.path.join(self.image_root, rel_path)
 
             if not os.path.isfile(full_path):
-                if not _MISSING_Z_WARNED:
-                    warnings.warn(
-                        f"Missing z-index image (padding with zeros): {full_path}. "
-                        "Further missing-file warnings are suppressed.",
-                        stacklevel=2,
-                    )
-                    _MISSING_Z_WARNED = True
                 patch = np.zeros(
                     (self.patch_size, self.patch_size, 3), dtype=np.uint8
                 )
@@ -167,7 +159,6 @@ class MalariaPatchDataset(Dataset):
             patches.append(patch)
             z_indices_used.append(z_idx)
             filepaths.append(full_path)
-
         if not patches:
             patches = [
                 np.zeros((self.patch_size, self.patch_size, 3), dtype=np.uint8)
@@ -194,7 +185,12 @@ class MalariaPatchDataset(Dataset):
             z_indices_used = z_indices_used[: self.max_z]
             filepaths = filepaths[: self.max_z]
 
-            stacked = np.concatenate(patches, axis=2)
+            # Stack (max_z, H, W, 3) -> (H, W, 3, max_z) so reshape gives
+            # channels sequentially: R0..R_{max_z-1}, G0..G_{max_z-1}, B0..B_{max_z-1}.
+            # Transpose (1, 2, 3, 0) is required; (1, 2, 0, 3) would interleave z and RGB.
+            stacked = np.stack(patches, axis=0).transpose(1, 2, 3, 0).reshape(
+                self.patch_size, self.patch_size, -1
+            )
 
         # stacked is uint8 numpy (H, W, C). Transforms (e.g. ToTensor) handle
         # the uint8->float /255 normalisation and HWC->CHW permutation.

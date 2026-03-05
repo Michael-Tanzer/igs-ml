@@ -1,16 +1,14 @@
+# Architecture is loaded first so net (including net.model) is fully defined before _self_.
+defaults:
+  - architectures/efficientnet_b4
+  - _self_
+
 _target_: src.models.modules.base.BaseLitModule
 
 net:
-  _target_: src.models.components.model_wrapper.DataObjectModelWrapper
   model:
-    _target_: src.models.components.timm_classifier.TimmClassifier
-    model_name: efficientnet_b0
-    in_chans: 33               # 3 * max_z (11)
+    in_chans: 33    # 3 * max_z (11)
     num_classes: 1
-    pretrained: false
-    drop_rate: 0.2
-  dataobject_input_args:
-    - data
 
 optimizer:
   _target_: torch.optim.Adam
@@ -34,3 +32,6 @@ metrics:
   - _target_: src.models.metrics.simple_metrics.BinaryAccuracyMetric
     threshold: 0.0              # model outputs logits, so decision boundary is 0
   - _target_: src.models.metrics.simple_metrics.BinaryAUROCMetric
+
+# Log and update metrics every N steps (reduces per-step cost; epoch metric uses those steps only)
+log_metrics_every_n_steps: 10

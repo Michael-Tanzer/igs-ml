@@ -38,7 +38,7 @@ class SMSProperties:
         """Move all tensors in this properties object to device."""
         for k, v in self.__dict__.items():
             if isinstance(v, torch.Tensor):
-                setattr(self, k, v.to(device))
+                setattr(self, k, v.to(device, non_blocking=True))
         return self
 
 
@@ -198,16 +198,19 @@ class DataObject:
 
     def to(self, device):
         """Move all tensors to device, including sub-objects.
-        
+
+        Uses non_blocking=True for tensors to allow async CPU->GPU transfer
+        when DataLoader uses pin_memory=True.
+
         Args:
             device: Target device (e.g., 'cuda', 'cpu', torch.device)
-            
+
         Returns:
             self (for chaining)
         """
         for k, v in self.__dict__.items():
             if isinstance(v, torch.Tensor):
-                setattr(self, k, v.to(device))
+                setattr(self, k, v.to(device, non_blocking=True))
             elif hasattr(v, "__dict__") and hasattr(v, "to"):  # Handle sub-objects (dataclasses)
                 setattr(self, k, v.to(device))
         return self
@@ -240,7 +243,9 @@ class DataObject:
         """Convert to dictionary, including sub-objects."""
         result = {}
         for k, v in self.__dict__.items():
-            if hasattr(v, "__dict__"):  # Handle sub-objects
+            if isinstance(v, (torch.Tensor, np.ndarray)):
+                result[k] = v
+            elif hasattr(v, "__dict__"):
                 result[k] = v.__dict__
             else:
                 result[k] = v

@@ -155,3 +155,5 @@ configs/local/default.yaml
 # UV
 # uv.lock  # Commit lockfile for reproducibility (recommended for templates)
 # .venv is already ignored above
+tmp/
+AGENTS.MD

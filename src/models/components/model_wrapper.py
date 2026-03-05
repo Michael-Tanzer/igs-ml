@@ -33,7 +33,10 @@ class DataObjectModelWrapper(torch.nn.Module):
             **kwargs: Keyword arguments for model initialization
         """
         super().__init__()
-        self.model = model(*args, **kwargs)
+        if isinstance(model, torch.nn.Module):
+            self.model = model
+        else:
+            self.model = model(*args, **kwargs)
 
         if dataobject_input_args is None:
             dataobject_input_args = ["data"]

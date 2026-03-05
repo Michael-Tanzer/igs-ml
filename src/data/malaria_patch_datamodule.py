@@ -2,7 +2,8 @@
 
 Queries the autoscope DB once (caching results to disk), groups rows into
 per-patch samples across the z-stack, splits by patient ID, and exposes
-streaming DataLoaders that load tile images lazily.
+streaming DataLoaders that load tile images lazily.  Optionally pre-crops
+patches to local SSD via the per-sample ``.npy`` cache.
 """
 
 import json
@@ -14,12 +15,18 @@ import numpy as np
 import pandas as pd
 import torch
 from lightning import LightningDataModule
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose
 
-from src.data.components.db_client import get_connection, run_query_from_file
 from src.data.components.malaria_patch_dataset import MalariaPatchDataset
+from src.data.components.patch_cache import (
+    SENTINEL_ALL_CACHED,
+    check_all_cached,
+    get_cache_dir,
+    precompute_all,
+)
+from src.data.utils.db_client import get_connection, run_query_from_file
 from src.utils.data_objects import custom_object_collate_fn
 
 
@@ -121,14 +128,21 @@ def _instantiate_transforms(cfg_list):
     """Hydra-instantiate a list of transform configs.
 
     Args:
-        cfg_list: OmegaConf list of dicts, each with ``_target_`` and params.
+        cfg_list: OmegaConf list of dicts, each with ``_target_`` and params,
+            or a list of already-instantiated transform objects.
 
     Returns:
         List of instantiated transform objects.
     """
     if cfg_list is None:
         return []
-    return [hydra.utils.instantiate(t) for t in cfg_list]
+    out = []
+    for t in cfg_list:
+        if isinstance(t, (dict, DictConfig)):
+            out.append(hydra.utils.instantiate(t))
+        else:
+            out.append(t)
+    return out
 
 
 class MalariaPatchDataModule(LightningDataModule):
@@ -156,6 +170,11 @@ class MalariaPatchDataModule(LightningDataModule):
         persistent_workers,
         pin_memory,
         cache_dir,
+        io_threads=11,
+        patch_cache="auto",
+        patch_cache_version=1,
+        patch_cache_mmap=True,
+        precompute_workers=1,
         transforms_base=None,
         transforms_augment=None,
     ):
@@ -179,6 +198,16 @@ class MalariaPatchDataModule(LightningDataModule):
             persistent_workers: Keep workers alive between epochs.
             pin_memory: Pin memory for GPU transfer.
             cache_dir: Directory for cached metadata.
+            io_threads: Number of threads per DataLoader worker for parallel
+                z-slice I/O reads (default matches ``max_z``).
+            patch_cache: ``"auto"`` (precompute missing, use cache),
+                ``"require"`` (error if missing), or ``"off"`` (NAS only).
+            patch_cache_version: Manual version integer -- bump to invalidate
+                the precomputed patch cache.
+            patch_cache_mmap: If True, load cached .npy with mmap for faster
+                access. No effect when patch_cache is ``"off"``.
+            precompute_workers: Number of parallel processes for patch
+                precomputation (1 = single-process).
             transforms_base: Hydra-instantiable list applied to all splits.
             transforms_augment: Hydra-instantiable list applied to train only.
         """
@@ -191,38 +220,111 @@ class MalariaPatchDataModule(LightningDataModule):
 
         self.batch_size_per_device = batch_size
 
+    def _load_and_split(self):
+        """Load cached metadata and split samples by PID.
+
+        Returns:
+            Tuple of ``(all_samples, z_stack_file_map,
+            train_samples, val_samples, test_samples)``.
+        """
+        cache_dir = self.hparams.cache_dir
+        samples_df = pd.read_parquet(os.path.join(cache_dir, "samples.parquet"))
+        with open(os.path.join(cache_dir, "z_stack_file_map.json")) as f:
+            z_stack_file_map = json.load(f)
+
+        z_stack_file_map = {
+            zstack: {int(k): v for k, v in zmap.items()}
+            for zstack, zmap in z_stack_file_map.items()
+        }
+
+        samples = samples_df.to_dict(orient="records")
+
+        train_samples, val_samples, test_samples = _split_by_pid(
+            samples,
+            list(self.hparams.train_val_test_split),
+            self.hparams.split_seed,
+        )
+
+        return samples, z_stack_file_map, train_samples, val_samples, test_samples
+
+    def _get_patch_cache_dir(self):
+        """Return the versioned patch cache directory, or ``None`` if caching is off."""
+        if self.hparams.patch_cache == "off":
+            return None
+        return get_cache_dir(
+            self.hparams.cache_dir,
+            self.hparams.patch_cache_version,
+            self.hparams.patch_size,
+            self.hparams.max_z,
+        )
+
     def prepare_data(self):
-        """Query DB, group samples, and cache to disk (runs on rank-0 only)."""
+        """Query DB, group samples, cache to disk, and precompute patches.
+
+        Runs on rank-0 only.  The patch precompute step (controlled by
+        ``patch_cache``) skips samples that already have a cached ``.npy``.
+        """
         cache_dir = self.hparams.cache_dir
         samples_path = os.path.join(cache_dir, "samples.parquet")
         zmap_path = os.path.join(cache_dir, "z_stack_file_map.json")
 
-        if os.path.isfile(samples_path) and os.path.isfile(zmap_path):
-            return
+        if not (os.path.isfile(samples_path) and os.path.isfile(zmap_path)):
+            os.makedirs(cache_dir, exist_ok=True)
 
-        os.makedirs(cache_dir, exist_ok=True)
+            db_cfg = OmegaConf.to_container(self.hparams.db, resolve=True)
+            with get_connection(db_cfg) as conn:
+                rows = run_query_from_file(conn, self.hparams.query_path)
 
-        db_cfg = OmegaConf.to_container(self.hparams.db, resolve=True)
-        with get_connection(db_cfg) as conn:
-            rows = run_query_from_file(conn, self.hparams.query_path)
+            df = pd.DataFrame(rows)
+            if df.empty:
+                warnings.warn("DB query returned 0 rows -- dataset will be empty.")
+                pd.DataFrame().to_parquet(samples_path)
+                with open(zmap_path, "w") as f:
+                    json.dump({}, f)
+                return
 
-        df = pd.DataFrame(rows)
-        if df.empty:
-            warnings.warn("DB query returned 0 rows -- dataset will be empty.")
-            pd.DataFrame().to_parquet(samples_path)
+            z_stack_file_map = _build_z_stack_file_map(df)
+
+            label_col = self.hparams.label_column
+            df_filtered = df[df[label_col].notna()].copy()
+            samples = _group_samples(df_filtered, label_col)
+
+            pd.DataFrame(samples).to_parquet(samples_path, index=False)
             with open(zmap_path, "w") as f:
-                json.dump({}, f)
+                json.dump(z_stack_file_map, f)
+
+        patch_cache_dir = self._get_patch_cache_dir()
+        if patch_cache_dir is None:
             return
 
-        z_stack_file_map = _build_z_stack_file_map(df)
+        all_samples, z_stack_file_map, *_ = self._load_and_split()
 
-        label_col = self.hparams.label_column
-        df_filtered = df[df[label_col].notna()].copy()
-        samples = _group_samples(df_filtered, label_col)
-
-        pd.DataFrame(samples).to_parquet(samples_path, index=False)
-        with open(zmap_path, "w") as f:
-            json.dump(z_stack_file_map, f)
+        if self.hparams.patch_cache == "require":
+            missing = check_all_cached(
+                all_samples,
+                patch_cache_dir,
+                write_sentinel_if_complete=True,
+            )
+            if missing:
+                raise FileNotFoundError(
+                    f"patch_cache='require' but {len(missing)} samples are "
+                    f"missing from {patch_cache_dir}. Run the precompute "
+                    f"script first or set patch_cache='auto'."
+                )
+        elif self.hparams.patch_cache == "auto":
+            precompute_all(
+                all_samples,
+                z_stack_file_map,
+                self.hparams.image_root,
+                self.hparams.patch_size,
+                self.hparams.max_z,
+                patch_cache_dir,
+                io_threads=self.hparams.io_threads,
+                workers=self.hparams.precompute_workers,
+            )
+            # Write sentinel so next run can skip check_all_cached walk
+            with open(os.path.join(patch_cache_dir, SENTINEL_ALL_CACHED), "w"):
+                pass
 
     def setup(self, stage=None):
         """Load cache, split by PID, build transforms, create Datasets."""
@@ -239,23 +341,8 @@ class MalariaPatchDataModule(LightningDataModule):
                 self.hparams.batch_size // self.trainer.world_size
             )
 
-        cache_dir = self.hparams.cache_dir
-        samples_df = pd.read_parquet(os.path.join(cache_dir, "samples.parquet"))
-        with open(os.path.join(cache_dir, "z_stack_file_map.json")) as f:
-            z_stack_file_map = json.load(f)
-
-        # JSON deserialises int keys as strings -- restore them
-        z_stack_file_map = {
-            zstack: {int(k): v for k, v in zmap.items()}
-            for zstack, zmap in z_stack_file_map.items()
-        }
-
-        samples = samples_df.to_dict(orient="records")
-
-        train_samples, val_samples, test_samples = _split_by_pid(
-            samples,
-            list(self.hparams.train_val_test_split),
-            self.hparams.split_seed,
+        _, z_stack_file_map, train_samples, val_samples, test_samples = (
+            self._load_and_split()
         )
 
         base_tfms = _instantiate_transforms(self.hparams.transforms_base)
@@ -264,12 +351,17 @@ class MalariaPatchDataModule(LightningDataModule):
         train_transform = Compose(base_tfms + aug_tfms) if (base_tfms or aug_tfms) else None
         eval_transform = Compose(base_tfms) if base_tfms else None
 
+        patch_cache_dir = self._get_patch_cache_dir()
+
         common = dict(
             z_stack_file_map=z_stack_file_map,
             image_root=self.hparams.image_root,
             patch_size=self.hparams.patch_size,
             z_mode=self.hparams.z_mode,
             max_z=self.hparams.max_z,
+            io_threads=self.hparams.io_threads,
+            cache_dir=patch_cache_dir,
+            cache_mmap=self.hparams.patch_cache_mmap,
         )
 
         self.data_train = MalariaPatchDataset(
