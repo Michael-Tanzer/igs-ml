@@ -1,0 +1,2 @@
+# No logger - use logger=none to disable experiment logging (e.g. python train.py logger=none)
+none: {}

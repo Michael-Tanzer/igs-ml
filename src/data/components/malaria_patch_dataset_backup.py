@@ -64,6 +64,9 @@ def _crop_patch(image, cx, cy, patch_size):
 def _load_z_slice(full_path, cx, cy, patch_size):
     """Read a single z-slice image from disk and crop the patch around (cx, cy).
 
+    Skips the ``os.path.isfile`` stat call -- a missing or unreadable file is
+    detected via ``cv2.imread`` returning ``None``.
+
     Args:
         full_path: Absolute path to the tile image.
         cx: Centre x (column) of the crop.

@@ -33,5 +33,4 @@ metrics:
     threshold: 0.0              # model outputs logits, so decision boundary is 0
   - _target_: src.models.metrics.simple_metrics.BinaryAUROCMetric
 
-# Log and update metrics every N steps (reduces per-step cost; epoch metric uses those steps only)
 log_metrics_every_n_steps: 10
