@@ -157,3 +157,5 @@ configs/local/default.yaml
 # .venv is already ignored above
 tmp/
 AGENTS.MD
+
+scratch/explore_db/out*

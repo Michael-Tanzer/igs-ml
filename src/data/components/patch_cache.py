@@ -15,7 +15,7 @@ from functools import partial
 import numpy as np
 from tqdm import tqdm
 
-from src.data.components.malaria_patch_dataset import _load_z_slice
+from src.data.components.patch_io import load_z_slice
 
 
 def get_cache_dir(base_cache_dir, patch_cache_version, patch_size, max_z):
@@ -103,7 +103,7 @@ def _load_sample_from_nas(sample, z_stack_file_map, image_root, patch_size, max_
         for z in sorted_z
     ]
 
-    load_fn = partial(_load_z_slice, cx=cx, cy=cy, patch_size=patch_size)
+    load_fn = partial(load_z_slice, cx=cx, cy=cy, patch_size=patch_size)
     if io_pool is not None and full_paths:
         patches = list(io_pool.map(load_fn, full_paths))
     else:
