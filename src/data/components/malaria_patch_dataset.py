@@ -145,6 +145,9 @@ class MalariaPatchDataset(Dataset):
                 self.patch_size, self.patch_size, 3 * self.max_z
             )
 
+        if not stacked.flags.writeable:
+            stacked = stacked.copy()
+
         if self.transform is not None:
             tensor = self.transform(stacked)
         else:

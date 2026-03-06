@@ -209,7 +209,7 @@ class DataObject:
             self (for chaining)
         """
         for k, v in self.__dict__.items():
-            if isinstance(v, torch.Tensor):
+            if isinstance(v, torch.Tensor) and v.numel() > 0:
                 setattr(self, k, v.to(device, non_blocking=True))
             elif hasattr(v, "__dict__") and hasattr(v, "to"):  # Handle sub-objects (dataclasses)
                 setattr(self, k, v.to(device))

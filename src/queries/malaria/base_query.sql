@@ -83,12 +83,11 @@ LEFT JOIN object_result_enumeration re ON rt.id_object_enumeration = re.id_objec
     AND anal.analysis_score_enumerated = re.result_value
 LEFT JOIN object_analysis_files af ON anal.id_object_analysis_file = af.id
 
--- WHERE
---     loc.id IN (33, 35)
---     AND s.pixels_per_micron < 9.0
+WHERE
+    loc.id IN (33, 35, 37)
+    AND s.pixels_per_micron < 9.0
 --     AND s.id IN (12545, 13880, 14082, 14084, 14100) -- image sets
---     AND sm.name = 'THICKSMEAR'
---     AND icc.id = 14
+    -- AND icc.id = 14
 
 GROUP BY
     o.id,

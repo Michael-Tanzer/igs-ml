@@ -11,13 +11,13 @@ io_threads: 11                   # threads per worker for parallel z-slice I/O
 
 patch_cache: require             # "auto", "require", or "off"
 patch_cache_version: 1           # bump to manually invalidate precomputed patches
-patch_cache_mmap: true           # mmap cached .npy for faster reads
+patch_cache_mmap: false           # mmap cached .npy for faster reads
 precompute_workers: 1           # parallel processes for patch precomputation
 
 train_val_test_split: [0.7, 0.15, 0.15]
 split_seed: 42
 
-batch_size: 768
+batch_size: 256
 num_workers: 16
 prefetch_factor: 2
 persistent_workers: true
@@ -30,6 +30,8 @@ cache_dir: ${paths.data_dir}/malaria_cache
 # transforms_eval  = transforms_base                       (val / test)
 transforms_base:
   - _target_: torchvision.transforms.ToTensor
+  - _target_: torchvision.transforms.Resize
+    size: [224, 224]
 transforms_augment:
   - _target_: torchvision.transforms.RandomHorizontalFlip
     p: 0.3

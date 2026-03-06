@@ -6,6 +6,8 @@ streaming DataLoaders that load tile images lazily.  Optionally pre-crops
 patches to local SSD via the per-sample ``.npy`` cache.
 """
 
+import glob as _glob
+import hashlib
 import json
 import os
 import warnings
@@ -28,6 +30,16 @@ from src.data.components.patch_cache import (
 )
 from src.data.utils.db_client import get_connection, run_query_from_file
 from src.utils.data_objects import custom_object_collate_fn
+
+
+def _query_hash(query_path: str) -> str:
+    """Return an MD5 hex digest of all .sql files in the same directory as query_path."""
+    sql_dir = os.path.dirname(os.path.abspath(query_path))
+    content = b""
+    for sql_file in sorted(_glob.glob(os.path.join(sql_dir, "*.sql"))):
+        with open(sql_file, "rb") as f:
+            content += f.read()
+    return hashlib.md5(content).hexdigest()
 
 
 def _build_z_stack_file_map(df):
@@ -237,6 +249,21 @@ class MalariaPatchDataModule(LightningDataModule):
             for zstack, zmap in z_stack_file_map.items()
         }
 
+        # Filter to only samples produced by the current SQL query.
+        hash_ids_path = os.path.join(
+            cache_dir, f"query_{_query_hash(self.hparams.query_path)}_ids.parquet"
+        )
+        if os.path.isfile(hash_ids_path):
+            keys = pd.read_parquet(hash_ids_path)
+            samples_df = samples_df.copy()
+            samples_df["x_int"] = samples_df["x"].round().astype(int)
+            samples_df["y_int"] = samples_df["y"].round().astype(int)
+            samples_df = samples_df.merge(
+                keys[["z_stack_filename", "x_int", "y_int"]],
+                on=["z_stack_filename", "x_int", "y_int"],
+                how="inner",
+            ).drop(columns=["x_int", "y_int"])
+
         samples = samples_df.to_dict(orient="records")
 
         train_samples, val_samples, test_samples = _split_by_pid(
@@ -268,6 +295,9 @@ class MalariaPatchDataModule(LightningDataModule):
         samples_path = os.path.join(cache_dir, "samples.parquet")
         zmap_path = os.path.join(cache_dir, "z_stack_file_map.json")
 
+        query_hash = _query_hash(self.hparams.query_path)
+        hash_ids_path = os.path.join(cache_dir, f"query_{query_hash}_ids.parquet")
+
         if not (os.path.isfile(samples_path) and os.path.isfile(zmap_path)):
             os.makedirs(cache_dir, exist_ok=True)
 
@@ -292,6 +322,37 @@ class MalariaPatchDataModule(LightningDataModule):
             pd.DataFrame(samples).to_parquet(samples_path, index=False)
             with open(zmap_path, "w") as f:
                 json.dump(z_stack_file_map, f)
+
+            # Write hash-keyed ID file so _load_and_split can filter correctly.
+            pd.DataFrame(
+                [{"z_stack_filename": s["z_stack_filename"],
+                  "x_int": int(round(s["x"])),
+                  "y_int": int(round(s["y"]))}
+                 for s in samples]
+            ).to_parquet(hash_ids_path, index=False)
+
+        elif not os.path.isfile(hash_ids_path):
+            # samples.parquet exists but was built from a different query; re-run
+            # the current query to record which samples it produces.
+            os.makedirs(cache_dir, exist_ok=True)
+            db_cfg = OmegaConf.to_container(self.hparams.db, resolve=True)
+            with get_connection(db_cfg) as conn:
+                rows = run_query_from_file(conn, self.hparams.query_path)
+
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                label_col = self.hparams.label_column
+                df_filtered = df[df[label_col].notna()].copy()
+                samples = _group_samples(df_filtered, label_col)
+            else:
+                samples = []
+
+            pd.DataFrame(
+                [{"z_stack_filename": s["z_stack_filename"],
+                  "x_int": int(round(s["x"])),
+                  "y_int": int(round(s["y"]))}
+                 for s in samples]
+            ).to_parquet(hash_ids_path, index=False)
 
         patch_cache_dir = self._get_patch_cache_dir()
         if patch_cache_dir is None:

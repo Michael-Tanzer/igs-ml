@@ -78,7 +78,7 @@ class SaveTestPTHsCallback(Callback):
 
         # Load existing data or create new
         if os.path.exists(self.data_filepath):
-            data = torch.load(self.data_filepath)["data"]
+            data = torch.load(self.data_filepath, weights_only=False)["data"]
             # Append new data
             new_data = self.merge_dicts(data.to_dict(), batch.to_dict())
             data = DataObject(**new_data)
@@ -90,7 +90,7 @@ class SaveTestPTHsCallback(Callback):
             "invertible_transforms": self.invertible_transforms,
         }
 
-        torch.save(pth_data, self.data_filepath)
+        torch.save(pth_data, self.data_filepath, weights_only=False)
 
     @staticmethod
     def merge_dicts(dict1: Dict, dict2: Dict) -> Dict:

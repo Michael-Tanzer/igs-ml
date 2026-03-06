@@ -28,6 +28,7 @@ class TimmClassifier(nn.Module):
         num_classes=1,
         pretrained=False,
         drop_rate=0.0,
+        **kwargs,
     ):
         """Initialise a timm-backed classifier.
 
@@ -37,6 +38,8 @@ class TimmClassifier(nn.Module):
             num_classes: Number of output classes (1 for binary logits).
             pretrained: Load ImageNet-pretrained weights when available.
             drop_rate: Dropout rate applied before the classifier head.
+            **kwargs: Additional kwargs forwarded to ``timm.create_model``
+                (e.g. ``img_size=144`` for vision transformers).
         """
         super().__init__()
         self.num_classes = num_classes
@@ -46,6 +49,7 @@ class TimmClassifier(nn.Module):
             in_chans=in_chans,
             num_classes=num_classes,
             drop_rate=drop_rate,
+            **kwargs,
         )
 
     def forward(self, x):

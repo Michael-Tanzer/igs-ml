@@ -1,7 +1,8 @@
 # @package _global_
 
 defaults:
-  - override /data: malaria_patch
+  - /model/architectures: efficientnet_b4
+  - override /data: malaria_patch_binary
   - override /model: malaria_patch
   - override /trainer: gpu
   - override /callbacks: default
@@ -13,9 +14,18 @@ seed: 42
 train: true
 test: true
 
+data:
+  z_mode: all
+
+model:
+  net:
+    model:
+      in_chans: 33    # 3 * max_z (11)
+      num_classes: 1
+
 logger:
   aim:
-    repo: "aim://0.0.0.0:53800"
+    repo: /data/mtanzer/aim/
     experiment: malaria_patch_baseline
 
 callbacks:

@@ -52,5 +52,6 @@ FROM (
     FROM (
         {{norm_wrapper}}
     ) AS n
-) AS p;
+) AS p
+WHERE p.smear_type = 'THINSMEAR';
 

@@ -47,5 +47,6 @@ SELECT
 
 FROM (
     {{norm_wrapper}}
-) AS n;
+) AS n
+WHERE n.smear_type = 'THICKSMEAR';
 

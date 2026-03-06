@@ -1,0 +1,13 @@
+# @package model.net
+# Full net config for MViT-V2-Large (DataObjectModelWrapper + TimmClassifier).
+_target_: src.models.components.model_wrapper.DataObjectModelWrapper
+model:
+  _target_: src.models.components.timm_classifier.TimmClassifier
+  model_name: mvitv2_large
+  in_chans: ???    # task-specific, set by model config (e.g. 3 * max_z)
+  num_classes: ??? # task-specific, set by model config
+  pretrained: false
+  drop_rate: 0.2
+  img_size: 144
+dataobject_input_args:
+  - data
