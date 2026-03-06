@@ -8,8 +8,12 @@ max_epochs: 10
 accelerator: cpu
 devices: 1
 
-# mixed precision for extra speed-up
-precision: 16
+# mixed precision — bf16 has fp32 exponent range (no NaN overflow), fp16 does not
+precision: bf16-mixed
+
+# clip gradient norm to prevent exploding gradients (critical with bf16/fp16)
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm
 
 # perform a validation loop every N training epochs
 check_val_every_n_epoch: 1

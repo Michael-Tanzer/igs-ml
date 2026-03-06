@@ -32,6 +32,9 @@ transforms_base:
   - _target_: torchvision.transforms.ToTensor
   - _target_: torchvision.transforms.Resize
     size: [224, 224]
+  - _target_: src.data.components.transforms.RepeatNormalize
+    mean: [0.206, 0.194, 0.235]  # computed by scripts/compute_dataset_stats.py over 514k train patches
+    std:  [0.313, 0.292, 0.347]
 transforms_augment:
   - _target_: torchvision.transforms.RandomHorizontalFlip
     p: 0.3

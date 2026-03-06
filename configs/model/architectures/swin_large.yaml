@@ -8,6 +8,6 @@ model:
   num_classes: ??? # task-specific, set by model config
   pretrained: false
   drop_rate: 0.2
-  img_size: 144
+  img_size: 224
 dataobject_input_args:
   - data

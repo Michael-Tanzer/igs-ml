@@ -1,0 +1,7 @@
+# Adaptive Gradient Clipping for Normalizer-Free networks (NFNet).
+# Required for stable training of NFNet with any optimizer other than SGD+AGC.
+# Uses timm.utils.adaptive_clip_grad internally.
+agc:
+  _target_: src.models.callbacks.agc.AGCCallback
+  clip_factor: 0.01   # standard NFNet paper value
+  eps: 1.0e-3

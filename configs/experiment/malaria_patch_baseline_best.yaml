@@ -22,7 +22,6 @@ model:
     model:
       in_chans: 3
       num_classes: 1
-      pretrained: true
 
 logger:
   aim:

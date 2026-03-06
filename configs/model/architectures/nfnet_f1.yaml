@@ -1,5 +1,7 @@
 # @package model.net
 # Full net config for NFNet-F1 (DataObjectModelWrapper + TimmClassifier).
+# IMPORTANT: NFNet is Normalizer-Free. Requires AGC for stable training.
+# Use callbacks=nfnet when running: model/architectures=nfnet_f1 callbacks=nfnet
 _target_: src.models.components.model_wrapper.DataObjectModelWrapper
 model:
   _target_: src.models.components.timm_classifier.TimmClassifier
