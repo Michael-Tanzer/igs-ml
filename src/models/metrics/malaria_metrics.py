@@ -23,7 +23,7 @@ from src.utils.data_objects import DataObject
 class MalariaPatientMetrics(torch.nn.Module):
     """Epoch-level patient metrics for malaria binary classification.
 
-    Accumulates per-batch predictions and groups them by patient (PID) at
+    Accumulates per-batch predictions and groups them by patient_id (blood sample id) at
     epoch end to compute clinically meaningful metrics.
 
     A patient is considered **positive** if any of their objects has
@@ -60,19 +60,18 @@ class MalariaPatientMetrics(torch.nn.Module):
 
         Args:
             batch: Computed DataObject with .output (logits), .target (binary),
-                   and .malaria.PID (list of str per sample).
+                   and .malaria.patient_id (list of int per sample).
         """
         if batch.malaria is None:
             return
 
-        pids = batch.malaria.PID
-        if not isinstance(pids, (list, tuple)):
-            # Collated as a single string (batch_size=1 edge case)
-            pids = [pids]
+        patient_ids = batch.malaria.patient_id
+        if not isinstance(patient_ids, (list, tuple)):
+            patient_ids = [patient_ids]
 
         self._preds.append(batch.output.detach().cpu().float())
         self._targets.append(batch.target.detach().cpu().float())
-        self._pids.append(list(pids))
+        self._pids.append(list(patient_ids))
 
     def compute(self) -> Dict[str, float]:
         """Compute patient-level metrics from accumulated batches.

@@ -92,7 +92,7 @@ def _group_samples(df, label_column):
                 "y": float(yi),
                 "label": label,
                 "object_ids": grp["object_id"].tolist(),
-                "PID": str(first.get("PID", "")),
+                "patient_id": int(first.get("id_blood_sample", -1)),
                 "species": str(first.get("species", "")),
                 "stage": str(first.get("stage", "")),
                 "smear_type": str(first.get("smear_type", "")),
@@ -106,32 +106,32 @@ def _group_samples(df, label_column):
     return samples
 
 
-def _split_by_pid(samples, ratios, seed):
-    """Deterministically split samples by PID.
+def _split_by_patient_id(samples, ratios, seed):
+    """Deterministically split samples by patient_id (blood sample id).
 
     Args:
-        samples: List of sample dicts (each has ``PID`` key).
+        samples: List of sample dicts (each has ``patient_id`` key).
         ratios: 3-element list ``[train, val, test]`` that sums to 1.
         seed: Random seed for reproducibility.
 
     Returns:
         Tuple ``(train_samples, val_samples, test_samples)``.
     """
-    pids = sorted(set(s["PID"] for s in samples))
+    patient_ids = sorted(set(s["patient_id"] for s in samples))
     rng = np.random.RandomState(seed)
-    rng.shuffle(pids)
+    rng.shuffle(patient_ids)
 
-    n = len(pids)
+    n = len(patient_ids)
     n_train = int(round(ratios[0] * n))
     n_val = int(round(ratios[1] * n))
 
-    train_pids = set(pids[:n_train])
-    val_pids = set(pids[n_train : n_train + n_val])
-    test_pids = set(pids[n_train + n_val :])
+    train_ids = set(patient_ids[:n_train])
+    val_ids = set(patient_ids[n_train : n_train + n_val])
+    test_ids = set(patient_ids[n_train + n_val :])
 
-    train = [s for s in samples if s["PID"] in train_pids]
-    val = [s for s in samples if s["PID"] in val_pids]
-    test = [s for s in samples if s["PID"] in test_pids]
+    train = [s for s in samples if s["patient_id"] in train_ids]
+    val = [s for s in samples if s["patient_id"] in val_ids]
+    test = [s for s in samples if s["patient_id"] in test_ids]
 
     return train, val, test
 
@@ -160,7 +160,7 @@ def _instantiate_transforms(cfg_list):
 class MalariaPatchDataModule(LightningDataModule):
     """LightningDataModule for malaria patch binary classification.
 
-    Handles DB querying, caching, PID-based splitting, and streaming
+    Handles DB querying, caching, patient-based splitting, and streaming
     DataLoaders.  See ``configs/data/malaria_patch.yaml`` for the full
     set of configurable parameters.
     """
@@ -203,7 +203,7 @@ class MalariaPatchDataModule(LightningDataModule):
             z_mode: ``"all"`` or ``"best"`` (Brenner focus selection).
             max_z: Fixed number of z-slices for ``z_mode="all"`` (pads/truncates).
             train_val_test_split: 3-element list of ratios.
-            split_seed: Seed for the PID split RNG.
+            split_seed: Seed for the patient split RNG.
             batch_size: Batch size.
             num_workers: DataLoader workers.
             prefetch_factor: Batches prefetched per worker.
@@ -233,7 +233,7 @@ class MalariaPatchDataModule(LightningDataModule):
         self.batch_size_per_device = batch_size
 
     def _load_and_split(self):
-        """Load cached metadata and split samples by PID.
+        """Load cached metadata and split samples by patient_id (blood sample id).
 
         Returns:
             Tuple of ``(all_samples, z_stack_file_map,
@@ -266,7 +266,7 @@ class MalariaPatchDataModule(LightningDataModule):
 
         samples = samples_df.to_dict(orient="records")
 
-        train_samples, val_samples, test_samples = _split_by_pid(
+        train_samples, val_samples, test_samples = _split_by_patient_id(
             samples,
             list(self.hparams.train_val_test_split),
             self.hparams.split_seed,
@@ -388,7 +388,7 @@ class MalariaPatchDataModule(LightningDataModule):
                 pass
 
     def setup(self, stage=None):
-        """Load cache, split by PID, build transforms, create Datasets."""
+        """Load cache, split by patient_id, build transforms, create Datasets."""
         if self.data_train is not None:
             return
 

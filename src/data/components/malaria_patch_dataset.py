@@ -42,7 +42,7 @@ class MalariaPatchDataset(Dataset):
 
     Args:
         samples: List of dicts, each with keys ``z_stack_filename``, ``x``,
-            ``y``, ``label``, and DB metadata (``PID``, ``species``, etc.).
+            ``y``, ``label``, and DB metadata (``patient_id``, ``species``, etc.).
         z_stack_file_map: ``{z_stack_filename: {z_index: rel_path}}`` built
             during data preparation.
         image_root: Absolute base directory prepended to every relative
@@ -162,7 +162,7 @@ class MalariaPatchDataset(Dataset):
             z_stack_filename=zstack,
             z_indices_used=z_indices_used,
             id_image_set=sample.get("id_image_set", -1),
-            PID=sample.get("PID", ""),
+            patient_id=sample.get("patient_id", -1),
             species=sample.get("species", ""),
             stage=sample.get("stage", ""),
             smear_type=sample.get("smear_type", ""),

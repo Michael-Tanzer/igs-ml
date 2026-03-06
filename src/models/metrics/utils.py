@@ -98,7 +98,11 @@ class WrappedMetric(torch.nn.Module):
 
 class PairedMetric(WrappedMetric):
     """Metric that compares output with target (or data with target if eval_on_data=True)."""
-    
+
+    def __init__(self, metric, name, add_to_modules=True, eval_on_data=False, cast_target_to_long=False, **kwargs):
+        super().__init__(metric, name, add_to_modules=add_to_modules, eval_on_data=eval_on_data, **kwargs)
+        self.cast_target_to_long = cast_target_to_long
+
     def log_step(self, x: DataObject, step: str) -> torch.Tensor:
         """Log metric for a specific step."""
         if step == "train":
@@ -111,6 +115,9 @@ class PairedMetric(WrappedMetric):
             raise ValueError(f"step must be 'train', 'val', or 'test', got {step}")
 
         data, output, target = x.get_data_output_target_tuple()
+
+        if self.cast_target_to_long:
+            target = target.long()
 
         if self.eval_on_data:
             if data.shape[1] > target.shape[1]:
@@ -170,18 +177,20 @@ class ImageLoggingMetric:
         raise NotImplementedError
 
 
-def metric_wrapper(metric: Type[Metric], name: str, mode: METRIC_TYPE) -> Type[WrappedMetric]:
+def metric_wrapper(metric: Type[Metric], name: str, mode: METRIC_TYPE, cast_target_to_long: bool = False) -> Type[WrappedMetric]:
     """Factory function to create wrapped metric of specific type.
-    
+
     Args:
         metric: Torchmetrics Metric class
         name: Name of the metric
         mode: Type of metric (PAIRED, SINGLE, or IMAGE)
-        
+        cast_target_to_long: If True, cast target to long before passing to metric (for classification metrics)
+
     Returns:
         WrappedMetric subclass
     """
     _name = name
+    _cast_target_to_long = cast_target_to_long
     if mode == MetricType.PAIRED:
         parent = PairedMetric
     elif mode == MetricType.SINGLE:
@@ -197,10 +206,12 @@ def metric_wrapper(metric: Type[Metric], name: str, mode: METRIC_TYPE) -> Type[W
             name: str = _name,
             add_to_modules: bool = True,
             eval_on_data: bool = False,
+            cast_target_to_long: bool = _cast_target_to_long,
             **kwargs
         ):
             super().__init__(
-                metric, name, add_to_modules=add_to_modules, eval_on_data=eval_on_data, **kwargs
+                metric, name, add_to_modules=add_to_modules, eval_on_data=eval_on_data,
+                cast_target_to_long=cast_target_to_long, **kwargs
             )
 
     return SpecificWrappedMetric

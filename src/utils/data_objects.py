@@ -54,7 +54,7 @@ class MalariaProperties:
     z_stack_filename: str
     z_indices_used: list
     id_image_set: int
-    PID: str
+    patient_id: int
     species: str
     stage: str
     smear_type: str

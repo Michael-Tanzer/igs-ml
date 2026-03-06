@@ -26,10 +26,10 @@ from torchmetrics.classification import (
 from src.models.metrics.utils import metric_wrapper
 from src.utils.enums import MetricType
 
-BinaryAccuracyMetric = metric_wrapper(BinaryAccuracy, "accuracy", MetricType.PAIRED)
-BinaryAUROCMetric = metric_wrapper(BinaryAUROC, "auroc", MetricType.PAIRED)
-BinaryF1Metric = metric_wrapper(BinaryF1Score, "f1", MetricType.PAIRED)
-BinaryPrecisionMetric = metric_wrapper(BinaryPrecision, "precision", MetricType.PAIRED)
-BinaryRecallMetric = metric_wrapper(BinaryRecall, "recall", MetricType.PAIRED)
-BinarySpecificityMetric = metric_wrapper(BinarySpecificity, "specificity", MetricType.PAIRED)
-BinaryAveragePrecisionMetric = metric_wrapper(BinaryAveragePrecision, "avg_precision", MetricType.PAIRED)
+BinaryAccuracyMetric = metric_wrapper(BinaryAccuracy, "accuracy", MetricType.PAIRED, cast_target_to_long=True)
+BinaryAUROCMetric = metric_wrapper(BinaryAUROC, "auroc", MetricType.PAIRED, cast_target_to_long=True)
+BinaryF1Metric = metric_wrapper(BinaryF1Score, "f1", MetricType.PAIRED, cast_target_to_long=True)
+BinaryPrecisionMetric = metric_wrapper(BinaryPrecision, "precision", MetricType.PAIRED, cast_target_to_long=True)
+BinaryRecallMetric = metric_wrapper(BinaryRecall, "recall", MetricType.PAIRED, cast_target_to_long=True)
+BinarySpecificityMetric = metric_wrapper(BinarySpecificity, "specificity", MetricType.PAIRED, cast_target_to_long=True)
+BinaryAveragePrecisionMetric = metric_wrapper(BinaryAveragePrecision, "avg_precision", MetricType.PAIRED, cast_target_to_long=True)
