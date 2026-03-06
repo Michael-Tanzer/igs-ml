@@ -68,6 +68,7 @@ class BaseLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler = None,
         criteria: List[Metric] = None,
         metrics: List[WrappedMetric] = None,
+        epoch_metrics: List = None,
         name: str = "Base",
         log_metrics_every_n_steps: int = 1,
     ):
@@ -79,17 +80,21 @@ class BaseLitModule(LightningModule):
             scheduler: Optional learning rate scheduler class
             criteria: List of loss/metric criteria
             metrics: List of wrapped metrics
+            epoch_metrics: List of epoch-level metrics (accumulated per batch, computed at
+                epoch end for val/test only). Each must implement update(batch), compute(),
+                and reset(), and expose a ``name`` attribute.
             name: Module name
             log_metrics_every_n_steps: Log and update metrics every N steps (1 = every step).
         """
         super().__init__()
 
         # Save hyperparameters (excluding non-serializable objects)
-        self.save_hyperparameters(logger=False, ignore=["net", "criteria", "metrics"])
+        self.save_hyperparameters(logger=False, ignore=["net", "criteria", "metrics", "epoch_metrics"])
 
         self.net = net
         self.criteria = torch.nn.ModuleList(criteria or [])
         self.metrics = metrics or []
+        self.epoch_metrics = epoch_metrics or []
 
         self.add_metrics_modules()
 
@@ -160,6 +165,7 @@ class BaseLitModule(LightningModule):
     def on_validation_epoch_end(self):
         """Called at end of validation epoch."""
         self.on_epoch_end(stage=TrainingStage.VAL)
+        self._compute_epoch_metrics(stage=TrainingStage.VAL)
 
     def test_step(self, batch: DataObject, batch_idx: int):
         """Test step."""
@@ -170,6 +176,15 @@ class BaseLitModule(LightningModule):
     def on_test_epoch_end(self):
         """Called at end of test epoch."""
         self.on_epoch_end(stage=TrainingStage.TEST)
+        self._compute_epoch_metrics(stage=TrainingStage.TEST)
+
+    def _compute_epoch_metrics(self, stage: TRAINING_STAGE):
+        """Compute and log epoch-level metrics, then reset them."""
+        for metric in self.epoch_metrics:
+            results = metric.compute()
+            for key, value in results.items():
+                self.log(f"{stage}/{key}", value, prog_bar=False)
+            metric.reset()
 
     def on_step_log(self, computed_batch: DataObject, stage: TRAINING_STAGE, batch_idx: int = None):
         """Log metrics and losses for a step.
@@ -224,6 +239,11 @@ class BaseLitModule(LightningModule):
                     prog_bar=True,
                     batch_size=computed_batch.output.shape[0],
                 )
+
+        # Accumulate epoch-level metrics (val/test only; train is too noisy)
+        if stage != TrainingStage.TRAIN:
+            for metric in self.epoch_metrics:
+                metric.update(computed_batch)
 
         # Sum non-None losses
         loss = sum(filter(None, computed_batch.losses.values()))
