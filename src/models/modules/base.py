@@ -155,6 +155,12 @@ class BaseLitModule(LightningModule):
     def on_train_epoch_end(self):
         """Called at end of training epoch."""
         self.on_epoch_end(stage=TrainingStage.TRAIN)
+        # Update threshold-calibrating epoch metrics from train data, then reset.
+        for metric in self.epoch_metrics:
+            compute_train_fn = getattr(metric, "compute_train", None)
+            if compute_train_fn is not None:
+                compute_train_fn()  # side-effect: stores threshold; return value not logged
+            metric.reset()
 
     def validation_step(self, batch: DataObject, batch_idx: int):
         """Validation step."""
@@ -230,19 +236,25 @@ class BaseLitModule(LightningModule):
                 if "best" in metric.name.lower():
                     continue
 
-                metric.log(computed_batch, stage)
+                value = metric.log(computed_batch, stage)
                 self.log(
                     f"{stage}/{metric.name}",
-                    metric.get(stage),
+                    value,
                     on_step=on_step,
                     on_epoch=True,
                     prog_bar=True,
                     batch_size=computed_batch.output.shape[0],
                 )
 
-        # Accumulate epoch-level metrics (val/test only; train is too noisy)
-        if stage != TrainingStage.TRAIN:
-            for metric in self.epoch_metrics:
+        # Accumulate epoch-level metrics.
+        # Most epoch metrics only run on val/test, but metrics that accept
+        # is_train= (e.g. OptimalThresholdMetrics) also accumulate train data.
+        is_train = stage == TrainingStage.TRAIN
+        for metric in self.epoch_metrics:
+            train_aware = "is_train" in metric.update.__code__.co_varnames
+            if train_aware:
+                metric.update(computed_batch, is_train=is_train)
+            elif not is_train:
                 metric.update(computed_batch)
 
         # Sum non-None losses
@@ -283,10 +295,7 @@ class BaseLitModule(LightningModule):
 
         # Reset metrics
         for metric in self.metrics:
-            try:
-                self.get_submodule(f"{metric.name} {stage}")
-            except AttributeError:
-                metric.get(stage).reset()
+            metric.get(stage).reset()
 
     def configure_optimizers(self):
         """Configure optimizers and learning rate schedulers."""

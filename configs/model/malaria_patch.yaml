@@ -35,5 +35,6 @@ metrics:
 epoch_metrics:
   - _target_: src.models.metrics.malaria_metrics.MalariaPatientMetrics
     threshold: 0.0              # logit threshold; 0.0 = sigmoid boundary at 0.5
+  - _target_: src.models.metrics.malaria_metrics.OptimalThresholdMetrics
 
 log_metrics_every_n_steps: 10

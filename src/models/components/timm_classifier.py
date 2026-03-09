@@ -52,6 +52,13 @@ class TimmClassifier(nn.Module):
             **kwargs,
         )
 
+        # Zero-initialize the classifier bias so initial logits are centered at 0.
+        # timm's default init can produce a positive bias, causing all predictions
+        # to be positive (recall=1, specificity=0) before any learning occurs.
+        classifier = self.model.get_classifier()
+        if classifier is not None and hasattr(classifier, "bias") and classifier.bias is not None:
+            nn.init.zeros_(classifier.bias)
+
     def forward(self, x):
         """Run the backbone + classifier head.
 

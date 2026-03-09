@@ -16,8 +16,121 @@ from collections import defaultdict
 from typing import Dict, List
 
 import torch
+from torchmetrics.classification import BinaryF1Score, BinaryPrecisionRecallCurve
 
 from src.utils.data_objects import DataObject
+
+
+def _best_f1_threshold(preds: torch.Tensor, targets: torch.Tensor):
+    """Return the logit threshold that maximises F1 on the given set.
+
+    Args:
+        preds: 1-D logit tensor.
+        targets: 1-D long tensor of 0/1 labels.
+
+    Returns:
+        (best_thresh_logit, best_f1) tuple.
+    """
+    probs = torch.sigmoid(preds)
+    prc = BinaryPrecisionRecallCurve()
+    precision, recall, thresholds = prc(probs, targets)
+    # precision/recall have one extra sentinel element at the end
+    precision = precision[:-1]
+    recall = recall[:-1]
+    denom = precision + recall
+    f1_scores = torch.where(denom > 0, 2 * precision * recall / denom, torch.zeros_like(denom))
+    best_idx = f1_scores.argmax()
+    best_thresh_prob = thresholds[best_idx].item()
+    best_thresh_logit = torch.logit(torch.tensor(best_thresh_prob).clamp(1e-6, 1 - 1e-6)).item()
+    return best_thresh_logit, f1_scores[best_idx].item()
+
+
+def _threshold_metrics(preds: torch.Tensor, targets: torch.Tensor, threshold_logit: float) -> Dict[str, float]:
+    """Compute recall, specificity, F1 at a fixed logit threshold."""
+    binary_preds = (preds > threshold_logit).long()
+    tp = ((binary_preds == 1) & (targets == 1)).sum().float()
+    fp = ((binary_preds == 1) & (targets == 0)).sum().float()
+    fn = ((binary_preds == 0) & (targets == 1)).sum().float()
+    tn = ((binary_preds == 0) & (targets == 0)).sum().float()
+    rec = (tp / (tp + fn)).item() if (tp + fn) > 0 else float("nan")
+    spec = (tn / (tn + fp)).item() if (tn + fp) > 0 else float("nan")
+    denom = 2 * tp + fp + fn
+    f1 = (2 * tp / denom).item() if denom > 0 else float("nan")
+    return {"opt_recall": rec, "opt_specificity": spec, "opt_f1": f1}
+
+
+class OptimalThresholdMetrics(torch.nn.Module):
+    """Epoch-level patch metrics at the threshold that maximises train F1.
+
+    Because models trained with BCE often operate in a logit regime where
+    all outputs are above (or below) zero, a fixed threshold=0.0 produces
+    degenerate recall=1/specificity=0.  This metric finds the best F1
+    threshold on the **training** set and applies it to **val/test** to
+    avoid leaking label information from the evaluation set.
+
+    Usage in BaseLitModule:
+    - update() is called every train and val/test batch (epoch_metrics path)
+    - At train epoch end: optimal threshold is computed and stored
+    - At val/test epoch end: stored threshold is applied to val/test predictions
+
+    Only registered as an epoch_metric (add_to_modules = False).
+    """
+
+    name = "optimal_threshold"
+    add_to_modules = False
+
+    def __init__(self):
+        super().__init__()
+        self._train_preds: List[torch.Tensor] = []
+        self._train_targets: List[torch.Tensor] = []
+        self._eval_preds: List[torch.Tensor] = []
+        self._eval_targets: List[torch.Tensor] = []
+        self._threshold_logit: float = 0.0  # updated after each train epoch
+
+    def reset(self):
+        """Clear the current-stage accumulation buffers (not the stored threshold)."""
+        self._train_preds.clear()
+        self._train_targets.clear()
+        self._eval_preds.clear()
+        self._eval_targets.clear()
+
+    def update(self, batch: DataObject, is_train: bool = False):
+        """Accumulate one batch.
+
+        Args:
+            batch: Computed DataObject with .output (logits) and .target (binary).
+            is_train: True when called from the training loop.
+        """
+        preds = batch.output.detach().cpu().float()
+        targets = batch.target.detach().cpu().long()
+        if is_train:
+            self._train_preds.append(preds)
+            self._train_targets.append(targets)
+        else:
+            self._eval_preds.append(preds)
+            self._eval_targets.append(targets)
+
+    def compute_train(self) -> Dict[str, float]:
+        """Find optimal threshold from train data and store it for eval use."""
+        if not self._train_preds:
+            return {}
+        preds = torch.cat(self._train_preds)
+        targets = torch.cat(self._train_targets)
+        self._threshold_logit, best_f1 = _best_f1_threshold(preds, targets)
+        return {
+            "opt_threshold_logit": self._threshold_logit,
+            "train_opt_f1": best_f1,
+        }
+
+    def compute(self) -> Dict[str, float]:
+        """Apply stored threshold to eval data and return recall/spec/F1."""
+        if not self._eval_preds:
+            return {}
+        preds = torch.cat(self._eval_preds)
+        targets = torch.cat(self._eval_targets)
+        results = _threshold_metrics(preds, targets, self._threshold_logit)
+        results["opt_threshold_logit"] = self._threshold_logit
+        return results
 
 
 class MalariaPatientMetrics(torch.nn.Module):
