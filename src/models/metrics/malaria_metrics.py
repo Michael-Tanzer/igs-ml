@@ -16,13 +16,18 @@ from collections import defaultdict
 from typing import Dict, List
 
 import torch
-from torchmetrics.classification import BinaryF1Score, BinaryPrecisionRecallCurve
+
+
 
 from src.utils.data_objects import DataObject
 
 
 def _best_f1_threshold(preds: torch.Tensor, targets: torch.Tensor):
     """Return the logit threshold that maximises F1 on the given set.
+
+    Uses sorted unique prediction values as candidate thresholds — F1 is a
+    step function that only changes when the threshold crosses an actual
+    prediction value, so this gives exact results without grid resolution loss.
 
     Args:
         preds: 1-D logit tensor.
@@ -31,18 +36,18 @@ def _best_f1_threshold(preds: torch.Tensor, targets: torch.Tensor):
     Returns:
         (best_thresh_logit, best_f1) tuple.
     """
-    probs = torch.sigmoid(preds)
-    prc = BinaryPrecisionRecallCurve()
-    precision, recall, thresholds = prc(probs, targets)
-    # precision/recall have one extra sentinel element at the end
-    precision = precision[:-1]
-    recall = recall[:-1]
-    denom = precision + recall
-    f1_scores = torch.where(denom > 0, 2 * precision * recall / denom, torch.zeros_like(denom))
-    best_idx = f1_scores.argmax()
-    best_thresh_prob = thresholds[best_idx].item()
-    best_thresh_logit = torch.logit(torch.tensor(best_thresh_prob).clamp(1e-6, 1 - 1e-6)).item()
-    return best_thresh_logit, f1_scores[best_idx].item()
+    unique_vals, _ = torch.sort(torch.unique(preds))
+    if len(unique_vals) == 1:
+        return unique_vals[0].item(), 0.0
+
+    best_f1, best_thresh = 0.0, unique_vals[0].item()
+    for t in unique_vals:
+        m = _threshold_metrics(preds, targets, t.item())
+        f1 = m["opt_f1"]
+        if not (f1 != f1) and f1 > best_f1:  # skip NaN
+            best_f1 = f1
+            best_thresh = t.item()
+    return best_thresh, best_f1
 
 
 def _threshold_metrics(preds: torch.Tensor, targets: torch.Tensor, threshold_logit: float) -> Dict[str, float]:
@@ -88,11 +93,20 @@ class OptimalThresholdMetrics(torch.nn.Module):
         self._threshold_logit: float = 0.0  # updated after each train epoch
 
     def reset(self):
-        """Clear the current-stage accumulation buffers (not the stored threshold)."""
-        self._train_preds.clear()
-        self._train_targets.clear()
+        """Clear eval accumulation buffers (not train buffers or stored threshold).
+
+        In Lightning 2.x, ``on_validation_epoch_end`` fires *before*
+        ``on_train_epoch_end``.  A blanket clear here would wipe training
+        predictions before ``compute_train()`` can read them.  Train
+        buffers are cleared separately by ``reset_train()``.
+        """
         self._eval_preds.clear()
         self._eval_targets.clear()
+
+    def reset_train(self):
+        """Clear train accumulation buffers (called from ``on_train_epoch_end``)."""
+        self._train_preds.clear()
+        self._train_targets.clear()
 
     def update(self, batch: DataObject, is_train: bool = False):
         """Accumulate one batch.
@@ -113,6 +127,11 @@ class OptimalThresholdMetrics(torch.nn.Module):
     def compute_train(self) -> Dict[str, float]:
         """Find optimal threshold from train data and store it for eval use."""
         if not self._train_preds:
+            import warnings
+            warnings.warn(
+                "OptimalThresholdMetrics: no training predictions accumulated; "
+                "threshold stays at 0.0"
+            )
             return {}
         preds = torch.cat(self._train_preds)
         targets = torch.cat(self._train_targets)
@@ -168,13 +187,16 @@ class MalariaPatientMetrics(torch.nn.Module):
         self._targets.clear()
         self._pids.clear()
 
-    def update(self, batch: DataObject):
+    def update(self, batch: DataObject, is_train: bool = False):
         """Accumulate one batch of predictions.
 
         Args:
             batch: Computed DataObject with .output (logits), .target (binary),
                    and .malaria.patient_id (list of int per sample).
+            is_train: If True, skip accumulation (patient metrics are eval-only).
         """
+        if is_train:
+            return
         if batch.malaria is None:
             return
 

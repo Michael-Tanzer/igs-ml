@@ -17,7 +17,7 @@ precompute_workers: 1           # parallel processes for patch precomputation
 train_val_test_split: [0.7, 0.15, 0.15]
 split_seed: 42
 
-batch_size: 256
+batch_size: 128
 num_workers: 16
 prefetch_factor: 2
 persistent_workers: true
@@ -37,6 +37,12 @@ transforms_base:
     std:  [0.313, 0.292, 0.347]
 transforms_augment:
   - _target_: torchvision.transforms.RandomHorizontalFlip
-    p: 0.3
+    p: 0.5
   - _target_: torchvision.transforms.RandomVerticalFlip
-    p: 0.3
+    p: 0.5
+  - _target_: torchvision.transforms.RandomRotation
+    degrees: 180
+  - _target_: torchvision.transforms.ColorJitter
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.1

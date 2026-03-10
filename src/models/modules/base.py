@@ -71,6 +71,7 @@ class BaseLitModule(LightningModule):
         epoch_metrics: List = None,
         name: str = "Base",
         log_metrics_every_n_steps: int = 1,
+        warmup_ratio: float = 0.0,
     ):
         """Initialize base module.
 
@@ -153,14 +154,36 @@ class BaseLitModule(LightningModule):
         return return_batch
 
     def on_train_epoch_end(self):
-        """Called at end of training epoch."""
+        """Called at end of training epoch.
+
+        In Lightning 2.x the hook order is: train steps → val steps →
+        ``on_validation_epoch_end`` → ``on_train_epoch_end``.  Train
+        buffers must survive through validation, so we use ``reset_train()``
+        here instead of the generic ``reset()`` (which only clears eval).
+        """
         self.on_epoch_end(stage=TrainingStage.TRAIN)
-        # Update threshold-calibrating epoch metrics from train data, then reset.
+        opt_threshold = None
         for metric in self.epoch_metrics:
             compute_train_fn = getattr(metric, "compute_train", None)
             if compute_train_fn is not None:
-                compute_train_fn()  # side-effect: stores threshold; return value not logged
-            metric.reset()
+                result = compute_train_fn()
+                if isinstance(result, dict):
+                    opt_threshold = result.get("opt_threshold_logit", opt_threshold)
+                    for k, v in result.items():
+                        self.log(f"train/{k}", v, prog_bar=False)
+            # Clear train buffers; eval buffers were already cleared by
+            # _compute_epoch_metrics in on_validation_epoch_end.
+            reset_train_fn = getattr(metric, "reset_train", None)
+            if reset_train_fn is not None:
+                reset_train_fn()
+            else:
+                metric.reset()
+        # Propagate optimal threshold to patient metrics (or any metric with .threshold
+        # but without .compute_train — avoids circular self-update)
+        if opt_threshold is not None:
+            for metric in self.epoch_metrics:
+                if hasattr(metric, "threshold") and not hasattr(metric, "compute_train"):
+                    metric.threshold = opt_threshold
 
     def validation_step(self, batch: DataObject, batch_idx: int):
         """Validation step."""
@@ -246,16 +269,10 @@ class BaseLitModule(LightningModule):
                     batch_size=computed_batch.output.shape[0],
                 )
 
-        # Accumulate epoch-level metrics.
-        # Most epoch metrics only run on val/test, but metrics that accept
-        # is_train= (e.g. OptimalThresholdMetrics) also accumulate train data.
+        # Accumulate epoch-level metrics (every step, regardless of log_metrics_every_n_steps).
         is_train = stage == TrainingStage.TRAIN
         for metric in self.epoch_metrics:
-            train_aware = "is_train" in metric.update.__code__.co_varnames
-            if train_aware:
-                metric.update(computed_batch, is_train=is_train)
-            elif not is_train:
-                metric.update(computed_batch)
+            metric.update(computed_batch, is_train=is_train)
 
         # Sum non-None losses
         loss = sum(filter(None, computed_batch.losses.values()))
@@ -306,17 +323,41 @@ class BaseLitModule(LightningModule):
 
         optimizer = self.hparams.optimizer(params=params)
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
+            import inspect
 
-            if isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingLR):
+            warmup_ratio = getattr(self.hparams, "warmup_ratio", 0.0)
+            total_steps = self.trainer.estimated_stepping_batches
+            warmup_steps = int(total_steps * warmup_ratio)
+
+            # Inject T_max dynamically if the scheduler expects it (e.g. CosineAnnealingLR)
+            # but it was not pre-set in the config partial — avoids hardcoding in config.
+            sched_partial = self.hparams.scheduler
+            needs_t_max = (
+                hasattr(sched_partial, "func")
+                and "T_max" in inspect.signature(sched_partial.func).parameters
+                and "T_max" not in sched_partial.keywords
+            )
+            if needs_t_max:
+                scheduler = sched_partial(optimizer=optimizer, T_max=total_steps - warmup_steps)
+            else:
+                scheduler = sched_partial(optimizer=optimizer)
+
+            if warmup_steps > 0:
+                warmup = torch.optim.lr_scheduler.LinearLR(
+                    optimizer, start_factor=1e-6, end_factor=1.0, total_iters=warmup_steps
+                )
+                final_sched = torch.optim.lr_scheduler.SequentialLR(
+                    optimizer, schedulers=[warmup, scheduler], milestones=[warmup_steps]
+                )
                 interval = "step"
             else:
-                interval = "epoch"
+                final_sched = scheduler
+                interval = "step" if isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingLR) else "epoch"
 
             ret = {
                 "optimizer": optimizer,
                 "lr_scheduler": {
-                    "scheduler": scheduler,
+                    "scheduler": final_sched,
                     "monitor": "val/loss",
                     "interval": interval,
                     "frequency": 1,

@@ -1,16 +1,23 @@
 _target_: src.models.modules.base.BaseLitModule
 
+# ViT-family models (Swin, MViTv2, CoAtNet, MaxViT, ConvNeXtV2) need:
+#   - AdamW with decoupled weight decay (not Adam)
+#   - Linear LR warmup to avoid destroying pretrained attention at init
+#   - Cosine decay thereafter
+
+warmup_ratio: 0.02  # 2% of total training steps for linear warmup
+
 optimizer:
-  _target_: torch.optim.Adam
+  _target_: torch.optim.AdamW
   _partial_: true
-  lr: 1e-4
+  lr: 5e-5
+  weight_decay: 0.05
 
 scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  mode: min
-  factor: 0.1
-  patience: 10
+  eta_min: 1e-7
+  # T_max is injected automatically at runtime as (total_steps - warmup_steps)
 
 criteria:
   - _target_: src.models.losses.simple_losses.DataObjectLoss
