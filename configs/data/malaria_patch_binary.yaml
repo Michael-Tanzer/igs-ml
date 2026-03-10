@@ -4,7 +4,7 @@ db: ${db}
 query_path: src/queries/malaria/binary_classification.sql
 image_root: /data/mtanzer/autoscope_images
 patch_size: 144
-label_column: y_binary_strict    # or y_binary_inclusive
+label_column: y_binary_strict    # y_binary_strict or y_binary_inclusive or y_binary_matlab
 z_mode: all                      # "all" (3N ch) or "best" (3 ch, Brenner)
 max_z: 11                        # fixed z-slice count for z_mode=all (pads/truncates)
 io_threads: 11                   # threads per worker for parallel z-slice I/O
