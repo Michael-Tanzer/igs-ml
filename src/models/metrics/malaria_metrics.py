@@ -7,17 +7,34 @@ from each patient together.
 Metrics computed:
     mu_S, sigma_S    -- mean/std of per-positive-patient object sensitivity
     mu_F, sigma_F    -- mean/std of per-negative-patient false positive count
-    lod              -- Limit of Detection estimate (p/uL proxy)
+    lod              -- Limit of Detection in examined-volume units
+    lod_puL          -- Empirical LoD in p/uL (95% detection threshold)
+    lod_puL_calibrated -- Volume-calibrated LoD in p/uL
     patient_sens     -- fraction of positive patients correctly diagnosed
     patient_spec     -- fraction of negative patients with zero FPs
 """
 
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
 from src.utils.data_objects import DataObject
+
+
+def _parse_parasitemia(raw) -> Optional[float]:
+    """Parse parasitemia value to float. Returns None if unavailable.
+
+    The SQL query COALESCEs missing values to -1. Values may arrive as
+    str, int, or float depending on collation path.
+    """
+    try:
+        val = float(raw)
+        if val < 0:
+            return None
+        return val
+    except (ValueError, TypeError):
+        return None
 
 
 class MalariaPatientMetrics(torch.nn.Module):
@@ -46,12 +63,14 @@ class MalariaPatientMetrics(torch.nn.Module):
         self._preds: List[torch.Tensor] = []
         self._targets: List[torch.Tensor] = []
         self._pids: List[List[str]] = []
+        self._parasitemias: List[List[str]] = []
 
     def reset(self):
         """Clear accumulated state (call at the start of each epoch)."""
         self._preds.clear()
         self._targets.clear()
         self._pids.clear()
+        self._parasitemias.clear()
 
     def update(self, batch: DataObject, is_train: bool = False):
         """Accumulate one batch of predictions.
@@ -74,6 +93,11 @@ class MalariaPatientMetrics(torch.nn.Module):
         self._targets.append(batch.target.detach().cpu().float())
         self._pids.append(list(patient_ids))
 
+        parasitemias = batch.malaria.parasitemia
+        if not isinstance(parasitemias, (list, tuple)):
+            parasitemias = [parasitemias]
+        self._parasitemias.append(list(parasitemias))
+
     def compute(self) -> Dict[str, float]:
         """Compute patient-level metrics from accumulated batches.
 
@@ -92,6 +116,9 @@ class MalariaPatientMetrics(torch.nn.Module):
         all_pids: List[str] = []
         for pid_batch in self._pids:
             all_pids.extend(pid_batch)
+        all_parasitemias: List[str] = []
+        for p_batch in self._parasitemias:
+            all_parasitemias.extend(p_batch)
 
         # Binarise at 0.0 — model outputs are already shifted.
         binary_preds = (all_preds > 0.0).float()
@@ -101,12 +128,21 @@ class MalariaPatientMetrics(torch.nn.Module):
         for i, pid in enumerate(all_pids):
             pid_to_indices[str(pid)].append(i)
 
+        # Per-patient parasitemia (all patches from one patient share the same value)
+        pid_to_parasitemia: Dict[str, Optional[float]] = {}
+        for pid, indices in pid_to_indices.items():
+            pid_to_parasitemia[pid] = _parse_parasitemia(all_parasitemias[indices[0]])
+
         sensitivities: List[float] = []  # S_p for positive patients
         fp_counts: List[float] = []      # F_n for negative patients
         n_pos_patients = 0
         n_pos_correctly_diagnosed = 0
         n_neg_patients = 0
         n_neg_with_zero_fp = 0
+
+        # For p/uL metrics
+        detection_data: List[Tuple[float, bool]] = []  # (parasitemia, detected)
+        volume_ratios: List[float] = []  # cV/V estimates
 
         for pid, indices in pid_to_indices.items():
             idx = torch.tensor(indices, dtype=torch.long)
@@ -124,6 +160,16 @@ class MalariaPatientMetrics(torch.nn.Module):
                 n_pos_patients += 1
                 if tp >= 1:
                     n_pos_correctly_diagnosed += 1
+
+                # Collect data for p/uL metrics
+                parasitemia_val = pid_to_parasitemia.get(pid)
+                if parasitemia_val is not None and parasitemia_val > 0:
+                    detection_data.append((parasitemia_val, tp >= 1))
+                    # puL_per_patch = parasitemia / n_true_positive_patches
+                    # so LOD_puL = LOD_patches * mean(puL_per_patch)
+                    n_true_pos = p_targets.sum().item()
+                    if n_true_pos > 0:
+                        volume_ratios.append(parasitemia_val / n_true_pos)
             else:
                 fp = (p_preds == 1).sum().item()
                 fp_counts.append(float(fp))
@@ -163,7 +209,49 @@ class MalariaPatientMetrics(torch.nn.Module):
             results["patient_sigma_F"] = float("nan")
             results["patient_specificity"] = float("nan")
 
-        # LoD = (3.3 * sigma_F + 1) / max(mu_S, eps)
-        results["patient_lod"] = (3.3 * sigma_f + 1) / max(mu_s, 1e-6)
+        # LoD in examined-volume units (existing metric)
+        lod_patches = (3.3 * sigma_f + 1) / max(mu_s, 1e-6)
+        results["patient_lod"] = lod_patches
+
+        # ── LoD in p/uL: Empirical (95% detection threshold) ────────────
+        if len(detection_data) >= 5:
+            # Sort by parasitemia ascending
+            detection_data.sort(key=lambda x: x[0])
+            parasitemias_sorted = [d[0] for d in detection_data]
+            detected_sorted = [d[1] for d in detection_data]
+
+            # Reverse-cumulative detection rate: for each parasitemia level,
+            # what fraction of patients AT OR ABOVE it are detected?
+            n = len(detection_data)
+            cum_detected = 0
+            cum_total = 0
+            detection_rates = [0.0] * n
+            for i in range(n - 1, -1, -1):
+                cum_total += 1
+                if detected_sorted[i]:
+                    cum_detected += 1
+                detection_rates[i] = cum_detected / cum_total
+
+            # Find lowest parasitemia where cumulative detection rate >= 95%
+            lod_puL = float("nan")
+            for i in range(n):
+                if detection_rates[i] >= 0.95:
+                    lod_puL = parasitemias_sorted[i]
+                    break
+            results["patient_lod_puL"] = lod_puL
+        else:
+            results["patient_lod_puL"] = float("nan")
+        results["patient_lod_n_patients"] = float(len(detection_data))
+
+        # ── LoD in p/uL: Volume-calibrated ──────────────────────────────
+        # Back-solve puL_per_patch = parasitemia / n_true_positive_patches,
+        # then LOD_puL = LOD_patches * mean(puL_per_patch).
+        if volume_ratios:
+            mean_puL_per_patch = sum(volume_ratios) / len(volume_ratios)
+            results["patient_lod_puL_calibrated"] = lod_patches * mean_puL_per_patch
+            results["patient_puL_per_patch"] = mean_puL_per_patch
+        else:
+            results["patient_lod_puL_calibrated"] = float("nan")
+            results["patient_puL_per_patch"] = float("nan")
 
         return results

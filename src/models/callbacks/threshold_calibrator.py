@@ -90,17 +90,6 @@ class ThresholdCalibrator(Callback):
                     best_score = score_val
                     threshold = t.item()
 
-        # --- DEBUG ---
-        print(
-            f"\n[DEBUG ThresholdCalibrator] "
-            f"calibrate_on={self.calibrate_on}  "
-            f"samples={len(preds)}  "
-            f"unique_thresholds={len(unique_vals)}  "
-            f"logit_range=[{preds.min():.4f}, {preds.max():.4f}]  "
-            f"optimal_T={threshold:.6f}  "
-            f"best_F1={best_score:.4f}"
-        )
-
         pl_module.net.set_threshold(threshold)
         pl_module.log(f"{self.calibrate_on}/opt_threshold_logit", threshold, prog_bar=False)
         pl_module.log(f"{self.calibrate_on}/opt_criterion_score", best_score, prog_bar=False)

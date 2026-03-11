@@ -141,18 +141,6 @@ class BaseLitModule(LightningModule):
         """Training step."""
         computed_batch = self.model_step(batch)
 
-        # --- DEBUG: print diagnostics for the first few train batches ---
-        if batch_idx < 3 or (batch_idx % 500 == 0):
-            T = getattr(self.net, "threshold_logit", None)
-            T_val = T.item() if T is not None else "N/A"
-            print(
-                f"\n[DEBUG train batch {batch_idx}] "
-                f"threshold={T_val:.4f}  "
-                f"output=[{computed_batch.output.min():.4f}, {computed_batch.output.max():.4f}]  "
-                f"raw_logits=[{computed_batch.raw_logits.min():.4f}, {computed_batch.raw_logits.max():.4f}]  "
-                f"losses={{{', '.join(f'{k}={v.item():.4f}' for k, v in computed_batch.losses.items() if isinstance(v, torch.Tensor))}}}"
-            )
-
         self.on_step_log(computed_batch, stage=TrainingStage.TRAIN, batch_idx=batch_idx)
 
         # Return dict with loss information
@@ -179,20 +167,6 @@ class BaseLitModule(LightningModule):
     def validation_step(self, batch: DataObject, batch_idx: int):
         """Validation step."""
         computed_batch = self.model_step(batch)
-
-        # --- DEBUG: print diagnostics for the first few val batches ---
-        if batch_idx < 3:
-            T = getattr(self.net, "threshold_logit", None)
-            T_val = T.item() if T is not None else "N/A"
-            print(
-                f"\n[DEBUG val batch {batch_idx}] "
-                f"threshold={T_val:.4f}  "
-                f"output=[{computed_batch.output.min():.4f}, {computed_batch.output.max():.4f}] "
-                f"dtype={computed_batch.output.dtype}  "
-                f"raw_logits=[{computed_batch.raw_logits.min():.4f}, {computed_batch.raw_logits.max():.4f}] "
-                f"dtype={computed_batch.raw_logits.dtype}  "
-                f"losses={{{', '.join(f'{k}={v.item():.4f}' for k, v in computed_batch.losses.items() if isinstance(v, torch.Tensor))}}}"
-            )
 
         self.on_step_log(computed_batch, stage=TrainingStage.VAL, batch_idx=batch_idx)
         return computed_batch.to_dict()
