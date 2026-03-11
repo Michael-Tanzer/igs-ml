@@ -30,12 +30,26 @@ logger:
 
 callbacks:
   model_checkpoint:
-    monitor: "val/loss"
-    mode: "min"
+    monitor: val/auroc
+    mode: max
   early_stopping:
-    monitor: "val/loss"
-    mode: "min"
+    monitor: val/auroc
+    mode: max
     patience: 15
+  threshold_calibrator:
+    _target_: src.models.callbacks.threshold_calibrator.ThresholdCalibrator
+    mode: max
+    calibrate_on: val
+    criterion:
+      _target_: torchmetrics.classification.BinaryF1Score
+      threshold: 0.5
+  # batch_size_finder:
+  #   _target_: src.models.callbacks.batch_size_finder.BatchSizeFinder
+  #   mode: binsearch
+  #   steps_per_trial: 3
+  #   init_val: 64
+  #   max_trials: 25
+  #   batch_arg_name: batch_size_per_device
 
 trainer:
   max_epochs: 50

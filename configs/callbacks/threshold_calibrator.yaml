@@ -1,0 +1,6 @@
+threshold_calibrator:
+  _target_: src.models.callbacks.threshold_calibrator.ThresholdCalibrator
+  mode: max
+  criterion:
+    _target_: torchmetrics.classification.BinaryF1Score
+    threshold: 0.5  # no-op on pre-binarised predictions

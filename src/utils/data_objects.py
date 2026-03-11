@@ -113,6 +113,7 @@ class DataObject:
     data: torch.Tensor
     target: torch.Tensor
     output: torch.Tensor = field(default_factory=lambda: torch.empty(0))
+    raw_logits: torch.Tensor = field(default_factory=lambda: torch.empty(0))
     variance: torch.Tensor = field(default_factory=lambda: torch.empty(0))
     loss: torch.Tensor = field(default_factory=lambda: torch.empty(0))
     losses: Dict[str, torch.Tensor] = field(default_factory=dict)

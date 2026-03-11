@@ -1,9 +1,0 @@
-# Callback set for NFNet architectures.
-# Extends default callbacks with AGC (Adaptive Gradient Clipping),
-# which is required for stable NFNet training with any optimizer.
-# NFNets are Normalizer-Free — without AGC, activation variance grows
-# unchecked and causes NaN after a few hundred steps.
-defaults:
-  - default
-  - agc
-  - _self_

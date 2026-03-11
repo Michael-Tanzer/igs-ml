@@ -52,6 +52,7 @@ OmegaConf.register_new_resolver("machine_name", machine_name)
 torch.set_float32_matmul_precision('medium')  # 'medium' or 'high'
 
 
+
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during

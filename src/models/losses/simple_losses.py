@@ -46,4 +46,7 @@ class DataObjectLoss(nn.Module):
         Returns:
             Weighted scalar loss tensor.
         """
-        return self.loss_fn(data_object.output, data_object.target) * self.weight
+        # Prefer raw (unshifted) logits when available — the model may apply
+        # a threshold shift in eval mode, but loss should always see raw logits.
+        output = data_object.raw_logits if data_object.raw_logits.numel() > 0 else data_object.output
+        return self.loss_fn(output, data_object.target) * self.weight

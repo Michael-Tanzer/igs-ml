@@ -99,9 +99,20 @@ class DataObjectModelWrapper(torch.nn.Module):
                 new_output[~mask] = data_object.target[~mask].detach()
                 data_object.output = new_output
 
+        # Store raw (unshifted) logits for loss computation — the model may
+        # apply a threshold shift, but loss should always see raw logits.
+        threshold = getattr(self.model, "threshold_logit", None)
+        if threshold is not None:
+            data_object.raw_logits = data_object.output + threshold
+
         data_object.computed = True
 
         return data_object
+
+    def set_threshold(self, value: float):
+        """Delegate threshold update to wrapped model if supported."""
+        if hasattr(self.model, "set_threshold"):
+            self.model.set_threshold(value)
 
     def __getattr__(self, item):
         """Delegate attribute access to wrapped model."""

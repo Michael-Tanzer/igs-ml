@@ -1,16 +1,18 @@
 _target_: src.models.modules.base.BaseLitModule
 
+warmup_ratio: 0.02  # 2% of total training steps for linear warmup
+
 optimizer:
-  _target_: torch.optim.Adam
+  _target_: torch.optim.AdamW
   _partial_: true
-  lr: 1e-4
+  lr: 5e-5
+  weight_decay: 0.05
 
 scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  mode: min
-  factor: 0.1
-  patience: 10
+  eta_min: 1e-7
+  # T_max is injected automatically at runtime as (total_steps - warmup_steps)
 
 criteria:
   - _target_: src.models.losses.simple_losses.DataObjectLoss
@@ -37,7 +39,5 @@ metrics:
 
 epoch_metrics:
   - _target_: src.models.metrics.malaria_metrics.MalariaPatientMetrics
-    threshold: 0.0              # initial value only; overwritten after each train epoch by OptimalThresholdMetrics
-  - _target_: src.models.metrics.malaria_metrics.OptimalThresholdMetrics
 
 log_metrics_every_n_steps: 10

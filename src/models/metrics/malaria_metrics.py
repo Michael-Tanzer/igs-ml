@@ -17,139 +17,7 @@ from typing import Dict, List
 
 import torch
 
-
-
 from src.utils.data_objects import DataObject
-
-
-def _best_f1_threshold(preds: torch.Tensor, targets: torch.Tensor):
-    """Return the logit threshold that maximises F1 on the given set.
-
-    Uses sorted unique prediction values as candidate thresholds — F1 is a
-    step function that only changes when the threshold crosses an actual
-    prediction value, so this gives exact results without grid resolution loss.
-
-    Args:
-        preds: 1-D logit tensor.
-        targets: 1-D long tensor of 0/1 labels.
-
-    Returns:
-        (best_thresh_logit, best_f1) tuple.
-    """
-    unique_vals, _ = torch.sort(torch.unique(preds))
-    if len(unique_vals) == 1:
-        return unique_vals[0].item(), 0.0
-
-    best_f1, best_thresh = 0.0, unique_vals[0].item()
-    for t in unique_vals:
-        m = _threshold_metrics(preds, targets, t.item())
-        f1 = m["opt_f1"]
-        if not (f1 != f1) and f1 > best_f1:  # skip NaN
-            best_f1 = f1
-            best_thresh = t.item()
-    return best_thresh, best_f1
-
-
-def _threshold_metrics(preds: torch.Tensor, targets: torch.Tensor, threshold_logit: float) -> Dict[str, float]:
-    """Compute recall, specificity, F1 at a fixed logit threshold."""
-    binary_preds = (preds > threshold_logit).long()
-    tp = ((binary_preds == 1) & (targets == 1)).sum().float()
-    fp = ((binary_preds == 1) & (targets == 0)).sum().float()
-    fn = ((binary_preds == 0) & (targets == 1)).sum().float()
-    tn = ((binary_preds == 0) & (targets == 0)).sum().float()
-    rec = (tp / (tp + fn)).item() if (tp + fn) > 0 else float("nan")
-    spec = (tn / (tn + fp)).item() if (tn + fp) > 0 else float("nan")
-    denom = 2 * tp + fp + fn
-    f1 = (2 * tp / denom).item() if denom > 0 else float("nan")
-    return {"opt_recall": rec, "opt_specificity": spec, "opt_f1": f1}
-
-
-class OptimalThresholdMetrics(torch.nn.Module):
-    """Epoch-level patch metrics at the threshold that maximises train F1.
-
-    Because models trained with BCE often operate in a logit regime where
-    all outputs are above (or below) zero, a fixed threshold=0.0 produces
-    degenerate recall=1/specificity=0.  This metric finds the best F1
-    threshold on the **training** set and applies it to **val/test** to
-    avoid leaking label information from the evaluation set.
-
-    Usage in BaseLitModule:
-    - update() is called every train and val/test batch (epoch_metrics path)
-    - At train epoch end: optimal threshold is computed and stored
-    - At val/test epoch end: stored threshold is applied to val/test predictions
-
-    Only registered as an epoch_metric (add_to_modules = False).
-    """
-
-    name = "optimal_threshold"
-    add_to_modules = False
-
-    def __init__(self):
-        super().__init__()
-        self._train_preds: List[torch.Tensor] = []
-        self._train_targets: List[torch.Tensor] = []
-        self._eval_preds: List[torch.Tensor] = []
-        self._eval_targets: List[torch.Tensor] = []
-        self._threshold_logit: float = 0.0  # updated after each train epoch
-
-    def reset(self):
-        """Clear eval accumulation buffers (not train buffers or stored threshold).
-
-        In Lightning 2.x, ``on_validation_epoch_end`` fires *before*
-        ``on_train_epoch_end``.  A blanket clear here would wipe training
-        predictions before ``compute_train()`` can read them.  Train
-        buffers are cleared separately by ``reset_train()``.
-        """
-        self._eval_preds.clear()
-        self._eval_targets.clear()
-
-    def reset_train(self):
-        """Clear train accumulation buffers (called from ``on_train_epoch_end``)."""
-        self._train_preds.clear()
-        self._train_targets.clear()
-
-    def update(self, batch: DataObject, is_train: bool = False):
-        """Accumulate one batch.
-
-        Args:
-            batch: Computed DataObject with .output (logits) and .target (binary).
-            is_train: True when called from the training loop.
-        """
-        preds = batch.output.detach().cpu().float()
-        targets = batch.target.detach().cpu().long()
-        if is_train:
-            self._train_preds.append(preds)
-            self._train_targets.append(targets)
-        else:
-            self._eval_preds.append(preds)
-            self._eval_targets.append(targets)
-
-    def compute_train(self) -> Dict[str, float]:
-        """Find optimal threshold from train data and store it for eval use."""
-        if not self._train_preds:
-            import warnings
-            warnings.warn(
-                "OptimalThresholdMetrics: no training predictions accumulated; "
-                "threshold stays at 0.0"
-            )
-            return {}
-        preds = torch.cat(self._train_preds)
-        targets = torch.cat(self._train_targets)
-        self._threshold_logit, best_f1 = _best_f1_threshold(preds, targets)
-        return {
-            "opt_threshold_logit": self._threshold_logit,
-            "train_opt_f1": best_f1,
-        }
-
-    def compute(self) -> Dict[str, float]:
-        """Apply stored threshold to eval data and return recall/spec/F1."""
-        if not self._eval_preds:
-            return {}
-        preds = torch.cat(self._eval_preds)
-        targets = torch.cat(self._eval_targets)
-        results = _threshold_metrics(preds, targets, self._threshold_logit)
-        results["opt_threshold_logit"] = self._threshold_logit
-        return results
 
 
 class MalariaPatientMetrics(torch.nn.Module):
@@ -161,6 +29,10 @@ class MalariaPatientMetrics(torch.nn.Module):
     A patient is considered **positive** if any of their objects has
     ``target == 1`` (y_binary_strict). All other patients are **negative**.
 
+    Predictions are binarised at ``> 0.0`` — the model's ``threshold_logit``
+    buffer shifts outputs so that ``> 0`` is always the optimal decision
+    boundary.
+
     This class uses ``add_to_modules = False`` so that ``BaseLitModule``
     does NOT register the internal torchmetric sub-modules -- accumulation
     is managed manually here, not via torchmetrics state.
@@ -169,14 +41,8 @@ class MalariaPatientMetrics(torch.nn.Module):
     name = "malaria_patient"
     add_to_modules = False
 
-    def __init__(self, threshold: float = 0.0):
-        """
-        Args:
-            threshold: Logit threshold for binarising predictions (default 0.0,
-                       corresponding to sigmoid probability = 0.5).
-        """
+    def __init__(self):
         super().__init__()
-        self.threshold = threshold
         self._preds: List[torch.Tensor] = []
         self._targets: List[torch.Tensor] = []
         self._pids: List[List[str]] = []
@@ -227,8 +93,8 @@ class MalariaPatientMetrics(torch.nn.Module):
         for pid_batch in self._pids:
             all_pids.extend(pid_batch)
 
-        # Binarise predictions at the chosen threshold
-        binary_preds = (all_preds > self.threshold).float()
+        # Binarise at 0.0 — model outputs are already shifted.
+        binary_preds = (all_preds > 0.0).float()
 
         # Group by PID
         pid_to_indices: Dict[str, List[int]] = defaultdict(list)

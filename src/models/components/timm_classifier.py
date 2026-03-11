@@ -5,6 +5,7 @@ input channels, number of classes, dropout, pretrained weights, ...) is
 driven purely by config.
 """
 
+import torch
 import timm
 import torch.nn as nn
 
@@ -59,6 +60,15 @@ class TimmClassifier(nn.Module):
         if classifier is not None and hasattr(classifier, "bias") and classifier.bias is not None:
             nn.init.zeros_(classifier.bias)
 
+        # Optimal logit threshold — persisted with model weights via state_dict.
+        # Logits are always shifted by this value so that the decision
+        # boundary is always ``> 0``.
+        self.register_buffer("threshold_logit", torch.tensor(0.0))
+
+    def set_threshold(self, value: float):
+        """Update the optimal logit threshold."""
+        self.threshold_logit.fill_(value)
+
     def forward(self, x):
         """Run the backbone + classifier head.
 
@@ -72,4 +82,10 @@ class TimmClassifier(nn.Module):
         out = self.model(x)
         if self.num_classes == 1:
             out = out.squeeze(-1)
+        # Cast to float32 before threshold shift — under bf16-mixed autocast,
+        # the backbone output is bf16. The subtraction bf16 - f32 stays in bf16
+        # on CUDA, causing catastrophic cancellation when reconstructing
+        # raw_logits = (backbone_out - T) + T in the wrapper.
+        out = out.float()
+        out = out - self.threshold_logit
         return out
