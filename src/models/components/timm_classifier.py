@@ -64,10 +64,18 @@ class TimmClassifier(nn.Module):
         # Logits are always shifted by this value so that the decision
         # boundary is always ``> 0``.
         self.register_buffer("threshold_logit", torch.tensor(0.0))
+        # Count threshold T for patient-level diagnosis: a patient is positive
+        # if it has >= T positive-predicted patches.  Default 1.0 preserves
+        # the original "any positive patch" rule.
+        self.register_buffer("count_threshold", torch.tensor(1.0))
 
     def set_threshold(self, value: float):
         """Update the optimal logit threshold."""
         self.threshold_logit.fill_(value)
+
+    def set_count_threshold(self, value: float):
+        """Update the count threshold for patient-level diagnosis."""
+        self.count_threshold.fill_(value)
 
     def forward(self, x):
         """Run the backbone + classifier head.

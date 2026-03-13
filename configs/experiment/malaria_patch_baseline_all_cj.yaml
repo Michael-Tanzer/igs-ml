@@ -1,4 +1,7 @@
 # @package _global_
+# Same as malaria_patch_baseline_all but with MultiplaneColorJitter augmentation.
+# MultiplaneColorJitter applies ColorJitter independently per 3-ch z-plane,
+# enabling color augmentation for 33-channel z_mode=all inputs.
 
 defaults:
   - /model/architectures: efficientnet_b4
@@ -23,6 +26,11 @@ data:
       p: 0.5
     - _target_: torchvision.transforms.RandomRotation
       degrees: 180
+    - _target_: src.data.components.transforms.MultiplaneColorJitter
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.3
+      hue: 0.05
 
 model:
   net:

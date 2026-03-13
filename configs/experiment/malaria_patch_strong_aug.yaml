@@ -1,4 +1,6 @@
 # @package _global_
+# Stronger augmentation variant of baseline_best.
+# Adds GaussianBlur, RandomErasing, stronger ColorJitter with hue.
 
 defaults:
   - /model/architectures: efficientnet_b4
@@ -9,13 +11,13 @@ defaults:
   - override /logger: aim
   - override /paths: igs
 
-tags: ["malaria", "binary-classification", "efficientnet", "baseline"]
+tags: ["malaria", "binary-classification", "efficientnet", "strong-aug"]
 seed: 42
 train: true
 test: true
 
 data:
-  z_mode: all
+  z_mode: best
   transforms_augment:
     - _target_: torchvision.transforms.RandomHorizontalFlip
       p: 0.5
@@ -23,17 +25,32 @@ data:
       p: 0.5
     - _target_: torchvision.transforms.RandomRotation
       degrees: 180
+    - _target_: torchvision.transforms.ColorJitter
+      brightness: 0.3
+      contrast: 0.3
+      saturation: 0.3
+      hue: 0.05
+    - _target_: torchvision.transforms.GaussianBlur
+      kernel_size: 3
+      sigma:
+        - 0.1
+        - 2.0
+    - _target_: torchvision.transforms.RandomErasing
+      p: 0.1
+      scale:
+        - 0.02
+        - 0.1
 
 model:
   net:
     model:
-      in_chans: 33    # 3 * max_z (11)
+      in_chans: 3
       num_classes: 1
 
 logger:
   aim:
     repo: /data/mtanzer/aim/
-    experiment: malaria_patch_baseline
+    experiment: malaria_patch_autoresearch
 
 callbacks:
   model_checkpoint:

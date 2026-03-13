@@ -114,6 +114,11 @@ class DataObjectModelWrapper(torch.nn.Module):
         if hasattr(self.model, "set_threshold"):
             self.model.set_threshold(value)
 
+    def set_count_threshold(self, value: float):
+        """Delegate count threshold update to wrapped model if supported."""
+        if hasattr(self.model, "set_count_threshold"):
+            self.model.set_count_threshold(value)
+
     def __getattr__(self, item):
         """Delegate attribute access to wrapped model."""
         try:

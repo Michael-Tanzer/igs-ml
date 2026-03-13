@@ -1,4 +1,6 @@
 # @package _global_
+# Label smoothing variant of the baseline_best experiment.
+# Uses LabelSmoothingBCEWithLogitsLoss (epsilon=0.1) with pos_weight.
 
 defaults:
   - /model/architectures: efficientnet_b4
@@ -9,31 +11,34 @@ defaults:
   - override /logger: aim
   - override /paths: igs
 
-tags: ["malaria", "binary-classification", "efficientnet", "baseline"]
+tags: ["malaria", "binary-classification", "efficientnet", "label-smoothing"]
 seed: 42
 train: true
 test: true
 
 data:
-  z_mode: all
-  transforms_augment:
-    - _target_: torchvision.transforms.RandomHorizontalFlip
-      p: 0.5
-    - _target_: torchvision.transforms.RandomVerticalFlip
-      p: 0.5
-    - _target_: torchvision.transforms.RandomRotation
-      degrees: 180
+  z_mode: best
 
 model:
   net:
     model:
-      in_chans: 33    # 3 * max_z (11)
+      in_chans: 3
       num_classes: 1
+
+  criteria:
+    - _target_: src.models.losses.simple_losses.DataObjectLoss
+      loss_fn:
+        _target_: src.models.losses.focal_loss.LabelSmoothingBCEWithLogitsLoss
+        epsilon: 0.1
+        pos_weight:
+          _target_: torch.tensor
+          data: [1.9679]
+      name: bce_ls
 
 logger:
   aim:
     repo: /data/mtanzer/aim/
-    experiment: malaria_patch_baseline
+    experiment: malaria_patch_autoresearch
 
 callbacks:
   model_checkpoint:

@@ -192,7 +192,10 @@ class BaseLitModule(LightningModule):
         for metric in self.epoch_metrics:
             results = metric.compute()
             for key, value in results.items():
-                self.log(f"{stage}/{key}", value, prog_bar=False)
+                if isinstance(value, np.ndarray) and value.ndim == 3:
+                    self.log(f"{stage}/{key}", value, is_image=True)
+                else:
+                    self.log(f"{stage}/{key}", value, prog_bar=False)
             metric.reset()
 
     def on_step_log(self, computed_batch: DataObject, stage: TRAINING_STAGE, batch_idx: int = None):

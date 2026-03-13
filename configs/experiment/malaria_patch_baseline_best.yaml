@@ -36,20 +36,18 @@ callbacks:
     monitor: val/auroc
     mode: max
     patience: 15
-  threshold_calibrator:
-    _target_: src.models.callbacks.threshold_calibrator.ThresholdCalibrator
-    mode: max
+  dual_threshold_calibrator:
+    _target_: src.models.callbacks.dual_threshold_calibrator.DualThresholdCalibrator
+    target_specificity: 0.95
     calibrate_on: val
-    criterion:
-      _target_: torchmetrics.classification.BinaryF1Score
-      threshold: 0.5
-  # batch_size_finder:
-  #   _target_: src.models.callbacks.batch_size_finder.BatchSizeFinder
-  #   mode: binsearch
-  #   steps_per_trial: 3
-  #   init_val: 64
-  #   max_trials: 25
-  #   batch_arg_name: batch_size_per_device
+  batch_size_finder:
+    _target_: src.models.callbacks.batch_size_finder.BatchSizeFinder
+    mode: binsearch
+    steps_per_trial: 3
+    init_val: 64
+    max_trials: 25
+    batch_arg_name: batch_size_per_device
+    margin: 0.20
 
 trainer:
   max_epochs: 50

@@ -1,0 +1,4 @@
+dual_threshold_calibrator:
+  _target_: src.models.callbacks.dual_threshold_calibrator.DualThresholdCalibrator
+  target_specificity: 0.95
+  calibrate_on: val

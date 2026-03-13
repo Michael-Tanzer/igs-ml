@@ -5,3 +5,4 @@ batch_size_finder:
   init_val: 64
   max_trials: 25
   batch_arg_name: batch_size_per_device
+  margin: 0.20
